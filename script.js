@@ -1,0 +1,513 @@
+const API = '/api';
+const INTERVALO = 40;
+const servoNames = ['Base', 'Hombro', 'Codo', 'Muñeca'];
+const servoKeys = ['base', 'shoulder', 'elbow', 'wrist'];
+const servoIcons = ['ti-rotate-clockwise', 'ti-arrow-up', 'ti-fold-up', 'ti-hand-grab'];
+const roleLabels = {
+  super_admin: 'Super Admin',
+  admin: 'Super Admin',
+  operator: 'Operador',
+  guest: 'Invitado',
+  viewer: 'Invitado'
+};
+
+let client = null;
+let pubTotal = 0;
+let mqttTotal = 0;
+let ultimoEnvio = [0, 0, 0, 0];
+let auth = JSON.parse(localStorage.getItem('tadashy_auth') || 'null');
+let automations = [];
+let users = [];
+let historyItems = [];
+let currentMode = 'manual';
+let deviceTimer = null;
+
+const viewCopy = {
+  dashboard: ['Dashboard IoT', 'Estado en tiempo real del sistema y del broker MQTT.'],
+  robot: ['Centro de control del brazo', 'Control manual, modo automático y acceso a visión artificial.'],
+  mqtt: ['Explorador y monitor MQTT', 'Conexión, suscripción, publicación y trazas del broker.'],
+  automations: ['Automatizaciones', 'Secuencias guardadas con ejecución y registro histórico.'],
+  history: ['Historial', 'Eventos de usuario, MQTT, servos y automatizaciones.'],
+  users: ['Gestión de usuarios', 'Administración de cuentas, roles y permisos.']
+};
+
+const $ = (id) => document.getElementById(id);
+
+async function api(path, options = {}) {
+  const headers = { 'Content-Type': 'application/json', ...(options.headers || {}) };
+  if (auth?.token) headers.Authorization = `Bearer ${auth.token}`;
+  const res = await fetch(API + path, { ...options, headers });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Error de servidor');
+  return data;
+}
+
+function hasPermission(permission) {
+  if (permission === 'mqtt_status' && auth?.user?.permissions?.includes('mqtt_monitor')) return true;
+  if (permission === 'mqtt_publish' && auth?.user?.permissions?.includes('mqtt_monitor')) return true;
+  return Boolean(auth?.user?.permissions?.includes(permission));
+}
+
+function roleLabel(role) {
+  return roleLabels[role] || role;
+}
+
+function addLog(msg, tipo = 'inf') {
+  const ts = new Date().toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  const row = document.createElement('div');
+  row.className = 'log-row';
+  row.innerHTML = `<span class="log-ts">${ts}</span><span class="log-${tipo}">${escapeHtml(msg)}</span>`;
+  $('log').prepend(row);
+  while ($('log').children.length > 80) $('log').removeChild($('log').lastChild);
+}
+
+function escapeHtml(value) {
+  return String(value).replace(/[&<>"']/g, (ch) => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#039;'
+  }[ch]));
+}
+
+async function saveHistory(type, detail, metadata = {}) {
+  try {
+    await api('/history', {
+      method: 'POST',
+      body: JSON.stringify({ type, detail, metadata })
+    });
+  } catch (error) {
+    addLog(`Historial no guardado: ${error.message}`, 'err');
+  }
+}
+
+function renderShell() {
+  $('login-overlay').style.display = auth ? 'none' : 'flex';
+  $('main').style.display = auth ? 'grid' : 'none';
+  if (!auth) return;
+
+  $('session-name').textContent = `${auth.user.username} · ${roleLabel(auth.user.role)}`;
+  document.querySelectorAll('[data-permission]').forEach((el) => {
+    el.classList.toggle('hidden', !hasPermission(el.dataset.permission));
+  });
+  const activeNav = document.querySelector('.nav-btn.active');
+  if (activeNav?.classList.contains('hidden')) switchView('dashboard');
+  buildCards();
+  loadAll();
+  autoConnectMqtt();
+}
+
+async function login(event) {
+  event.preventDefault();
+  const username = $('inp-user').value.trim();
+  const password = $('inp-pass').value;
+  const errEl = $('login-err');
+  errEl.style.display = 'none';
+
+  try {
+    auth = await api('/auth/login', {
+      method: 'POST',
+      body: JSON.stringify({ username, password })
+    });
+    localStorage.setItem('tadashy_auth', JSON.stringify(auth));
+    addLog(`Sesión iniciada por ${auth.user.username}`, 'ok');
+    renderShell();
+  } catch (error) {
+    errEl.textContent = error.message;
+    errEl.style.display = 'block';
+  }
+}
+
+function logout() {
+  if (auth?.token) {
+    api('/auth/logout', { method: 'POST' }).catch(() => {});
+  }
+  localStorage.removeItem('tadashy_auth');
+  auth = null;
+  if (client) client.end(true);
+  client = null;
+  renderShell();
+}
+
+function switchView(view) {
+  document.querySelectorAll('.view').forEach((el) => el.classList.toggle('active', el.id === `view-${view}`));
+  document.querySelectorAll('.nav-btn').forEach((el) => el.classList.toggle('active', el.dataset.view === view));
+  $('view-title').textContent = viewCopy[view][0];
+  $('view-subtitle').textContent = viewCopy[view][1];
+}
+
+function buildCards() {
+  const grid = $('servo-grid');
+  if (!grid || grid.children.length) return;
+  const arcLen = (Math.PI * 58).toFixed(1);
+  const arcHalf = (Math.PI * 29).toFixed(1);
+
+  for (let i = 1; i <= 4; i++) {
+    grid.insertAdjacentHTML('beforeend', `
+      <div class="servo-card" id="card${i}">
+        <div class="servo-header">
+          <div class="servo-title"><i class="ti ${servoIcons[i - 1]}"></i>Servo ${i} · ${servoNames[i - 1]}</div>
+          <div class="servo-angle"><span class="num" id="num${i}">90</span><span class="deg">°</span></div>
+        </div>
+        <div class="arc-wrap">
+          <svg width="140" height="82" viewBox="0 0 140 82" role="img" aria-label="Ángulo servo ${i}">
+            <path class="arc-bg-s" d="M 12,70 A 58,58 0 0,1 128,70"/>
+            <path class="arc-fill-s" id="arc${i}" d="M 12,70 A 58,58 0 0,1 128,70" stroke-dasharray="${arcLen}" stroke-dashoffset="${arcHalf}"/>
+            <line id="needle${i}" x1="70" y1="70" x2="70" y2="16" stroke="#a78bff" stroke-width="2" stroke-linecap="round" class="needle-s"/>
+            <circle cx="70" cy="70" r="4" fill="#7c6aff"/>
+            <text x="10" y="80" font-size="9" fill="#4a3f6b">0°</text>
+            <text x="62" y="12" font-size="9" fill="#4a3f6b">90°</text>
+            <text x="118" y="80" font-size="9" fill="#4a3f6b" text-anchor="end">180°</text>
+          </svg>
+        </div>
+        <input type="range" min="0" max="180" value="90" step="1" id="slider${i}" data-servo="${i}"/>
+        <div class="slider-ticks"><span>0°</span><span>90°</span><span>180°</span></div>
+        <div class="presets">
+          <button class="preset" data-servo="${i}" data-angle="0">0°</button>
+          <button class="preset" data-servo="${i}" data-angle="45">45°</button>
+          <button class="preset" data-servo="${i}" data-angle="90">90°</button>
+          <button class="preset" data-servo="${i}" data-angle="135">135°</button>
+          <button class="preset" data-servo="${i}" data-angle="180">180°</button>
+        </div>
+      </div>`);
+  }
+}
+
+function updateAngle(i, val) {
+  const v = Math.max(0, Math.min(180, parseInt(val, 10) || 0));
+  const arcLen = Math.PI * 58;
+  $(`num${i}`).textContent = v;
+  $(`arc${i}`).style.strokeDashoffset = (arcLen - (v / 180) * arcLen).toFixed(1);
+  $(`needle${i}`).style.transform = `rotate(${-90 + v}deg)`;
+  $( `dash-${servoKeys[i - 1]}` ).textContent = `${v}°`;
+}
+
+function publish(topic, payload) {
+  if (!hasPermission('mqtt_publish')) {
+    addLog('No tienes permiso para publicar MQTT', 'err');
+    return false;
+  }
+  if (!client?.connected) {
+    addLog('MQTT no conectado', 'err');
+    return false;
+  }
+  client.publish(topic, String(payload));
+  pubTotal++;
+  $('pub-total').textContent = pubTotal;
+  saveHistory('mqtt_publish', `Publicado en ${topic}`, { topic, payload });
+  return true;
+}
+
+function mover(servo, valor, force = false) {
+  if (!hasPermission('robot_control')) return;
+  const ahora = Date.now();
+  if (!force && ahora - ultimoEnvio[servo - 1] <= INTERVALO) return;
+  ultimoEnvio[servo - 1] = ahora;
+  if (publish(`brazo/servo/${servo}`, valor)) {
+    updateAngle(servo, valor);
+    const card = $(`card${servo}`);
+    card.classList.add('pulse');
+    setTimeout(() => card.classList.remove('pulse'), 260);
+    addLog(`Servo ${servo} (${servoNames[servo - 1]}) -> ${valor}°`, 'ok');
+  }
+}
+
+function irA(servo, val) {
+  if (!hasPermission('robot_control')) return;
+  $(`slider${servo}`).value = val;
+  mover(servo, val, true);
+}
+
+function resetAll() {
+  if (!hasPermission('robot_control')) return addLog('No tienes permiso para controlar el brazo', 'err');
+  for (let i = 1; i <= 4; i++) irA(i, 90);
+  saveHistory('robot', 'Todos los servos centrados a 90°');
+}
+
+function setModo(modo) {
+  if (!hasPermission('robot_control')) return addLog('No tienes permiso para cambiar el modo', 'err');
+  currentMode = modo;
+  $('btn-manual').classList.toggle('active', modo === 'manual');
+  $('btn-auto').classList.toggle('active', modo === 'auto');
+  publish('brazo/modo', modo);
+  saveHistory('robot_mode', `Modo cambiado a ${modo}`);
+}
+
+function setDevice(online) {
+  $('device-badge').className = online ? 'badge badge-dev-on' : 'badge badge-dev-off';
+  $('device-badge').innerHTML = online ? '<i class="ti ti-cpu"></i> ESP32 conectado' : '<i class="ti ti-cpu"></i> ESP32 sin señal';
+  $('last-seen').textContent = online ? `Último dato ${new Date().toLocaleTimeString('es-CO')}` : 'Sin datos';
+  clearTimeout(deviceTimer);
+  if (online) deviceTimer = setTimeout(() => setDevice(false), 6000);
+}
+
+function conectarMqtt(event) {
+  event.preventDefault();
+  if (!hasPermission('mqtt_status')) return addLog('No tienes permiso para conectar MQTT', 'err');
+
+  const host = $('mqtt-host').value.trim();
+  const port = $('mqtt-port').value.trim();
+  const username = $('mqtt-user').value.trim();
+  const password = $('mqtt-pass').value;
+  if (!host || !port || !username || !password) return addLog('Completa los datos MQTT', 'err');
+
+  connectMqtt({ host, port, username, password });
+}
+
+function connectMqtt({ host, port, username, password }) {
+  if (!hasPermission('mqtt_status')) return false;
+  if (!host || !port || !username || !password) return false;
+  if (client?.connected) return true;
+
+  localStorage.setItem('tadashy_mqtt', JSON.stringify({ host, port, username, password }));
+  if (client) client.end(true);
+
+  client = mqtt.connect(`wss://${host}:${port}/mqtt`, {
+    username,
+    password,
+    clientId: `tadashy_web_${Math.random().toString(16).slice(2, 8)}`,
+    connectTimeout: 6000,
+    reconnectPeriod: 2000,
+    keepalive: 30
+  });
+
+  client.on('connect', () => {
+    $('conn-badge').className = 'badge badge-ok';
+    $('conn-badge').innerHTML = '<i class="ti ti-wifi"></i> MQTT conectado';
+    client.subscribe('brazo/#');
+    addLog('Broker MQTT conectado', 'ok');
+    saveHistory('mqtt_connect', `Conexión MQTT a ${host}`);
+  });
+
+  client.on('offline', () => {
+    $('conn-badge').className = 'badge badge-warn';
+    $('conn-badge').innerHTML = '<i class="ti ti-wifi-off"></i> MQTT desconectado';
+    addLog('Broker MQTT desconectado', 'err');
+  });
+
+  client.on('error', (error) => {
+    $('conn-badge').className = 'badge badge-err';
+    $('conn-badge').innerHTML = '<i class="ti ti-alert-triangle"></i> Error MQTT';
+    addLog(`Error MQTT: ${error.message || 'sin detalle'}`, 'err');
+  });
+
+  client.on('message', onMqttMessage);
+  return true;
+}
+
+function disconnectMqtt() {
+  if (client) client.end(true);
+  client = null;
+  $('conn-badge').className = 'badge badge-warn';
+  $('conn-badge').innerHTML = '<i class="ti ti-wifi-off"></i> MQTT desconectado';
+}
+
+function onMqttMessage(topic, payloadBuffer) {
+  const payload = payloadBuffer.toString();
+  mqttTotal++;
+  $('mqtt-total').textContent = mqttTotal;
+  addMqttRow(topic, payload);
+  setDevice(topic === 'brazo/status' ? payload === 'online' : true);
+
+  const match = topic.match(/^brazo\/servo\/feedback\/(\d)$/);
+  if (match) {
+    const idx = parseInt(match[1], 10);
+    const angle = parseInt(payload, 10);
+    if (idx >= 1 && idx <= 4 && angle >= 0 && angle <= 180) {
+      updateAngle(idx, angle);
+      const slider = $(`slider${idx}`);
+      if (slider && document.activeElement !== slider) slider.value = angle;
+    }
+  }
+}
+
+function addMqttRow(topic, payload) {
+  const row = document.createElement('div');
+  row.className = 'message-row';
+  row.innerHTML = `<span class="row-meta">${new Date().toLocaleTimeString('es-CO')}</span><span class="topic">${escapeHtml(topic)}</span><span class="payload">${escapeHtml(payload)}</span>`;
+  $('mqtt-messages').prepend(row);
+  while ($('mqtt-messages').children.length > 80) $('mqtt-messages').removeChild($('mqtt-messages').lastChild);
+}
+
+async function loadAll() {
+  await Promise.allSettled([loadUsers(), loadAutomations(), loadHistory()]);
+}
+
+async function loadUsers() {
+  if (!hasPermission('manage_users')) return;
+  const data = await api('/users');
+  users = data.users;
+  $('user-total').textContent = users.length;
+  $('user-list').innerHTML = users.map((user) => `
+    <div class="item-row">
+      <div><div class="row-title">${escapeHtml(user.username)}</div><div class="row-meta">${escapeHtml(roleLabel(user.role))} · ${user.active ? 'activo' : 'inactivo'}</div></div>
+      <button class="ghost-btn" data-toggle-user="${user.id}">${user.active ? 'Desactivar' : 'Activar'}</button>
+    </div>`).join('');
+}
+
+async function createUser(event) {
+  event.preventDefault();
+  try {
+    await api('/users', {
+      method: 'POST',
+      body: JSON.stringify({
+        username: $('new-username').value.trim(),
+        password: $('new-password').value,
+        role: $('new-role').value
+      })
+    });
+    event.target.reset();
+    await loadUsers();
+    saveHistory('user', 'Usuario creado');
+    addLog('Usuario creado exitosamente', 'ok');
+  } catch (error) {
+    addLog(`Error al crear usuario: ${error.message}`, 'err');
+  }
+}
+
+async function toggleUser(id) {
+  const user = users.find((item) => item.id === id);
+  if (!user) return;
+  try {
+    await api(`/users/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ active: !user.active })
+    });
+    await loadUsers();
+    addLog(`Usuario ${user.username} ${!user.active ? 'activado' : 'desactivado'}`, 'ok');
+  } catch (error) {
+    addLog(`Error al modificar usuario: ${error.message}`, 'err');
+  }
+}
+
+async function loadAutomations() {
+  const data = await api('/automations');
+  automations = data.automations;
+  $('auto-total').textContent = automations.length;
+  $('automation-list').innerHTML = automations.map((item) => `
+    <div class="item-row">
+      <div><div class="row-title">${escapeHtml(item.name)}</div><div class="row-meta">${item.steps.length} pasos</div></div>
+      <button class="secondary-btn" data-run-auto="${item.id}"><i class="ti ti-player-play"></i>Ejecutar</button>
+    </div>`).join('');
+}
+
+async function createAutomation(event) {
+  event.preventDefault();
+  try {
+    const steps = JSON.parse($('auto-steps').value);
+    await api('/automations', {
+      method: 'POST',
+      body: JSON.stringify({ name: $('auto-name').value.trim(), steps })
+    });
+    event.target.reset();
+    await loadAutomations();
+    saveHistory('automation', 'Automatización guardada');
+    addLog('Automatización guardada exitosamente', 'ok');
+  } catch (error) {
+    addLog(`Error al guardar automatización: ${error.message}`, 'err');
+  }
+}
+
+async function runAutomation(id) {
+  if (!hasPermission('run_automations')) return addLog('No tienes permiso para ejecutar automatizaciones', 'err');
+  const item = automations.find((automation) => automation.id === id);
+  if (!item) return;
+  setModo('auto');
+  addLog(`Ejecutando ${item.name}`, 'dev');
+  await api(`/automations/${id}/run`, { method: 'POST' });
+  for (const step of item.steps) {
+    await wait(Number(step.delay) || 250);
+    if (step.topic) publish(step.topic, JSON.stringify(step.payload ?? ''));
+    if (step.servo && Number.isFinite(Number(step.angle))) irA(Number(step.servo), Number(step.angle));
+  }
+  addLog(`Automatización finalizada: ${item.name}`, 'ok');
+  await loadHistory();
+}
+
+async function loadHistory() {
+  const data = await api('/history');
+  historyItems = data.history;
+  $('history-list').innerHTML = historyItems.map((item) => `
+    <div class="history-row">
+      <span class="row-meta">${new Date(item.createdAt).toLocaleString('es-CO')}</span>
+      <span class="topic">${escapeHtml(item.type)}</span>
+      <span>${escapeHtml(item.detail)}</span>
+    </div>`).join('');
+}
+
+function wait(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function hydrateMqttForm() {
+  const saved = JSON.parse(localStorage.getItem('tadashy_mqtt') || 'null');
+  if (!saved) return;
+  $('mqtt-host').value = saved.host || $('mqtt-host').value;
+  $('mqtt-port').value = saved.port || $('mqtt-port').value;
+  $('mqtt-user').value = saved.username || '';
+  $('mqtt-pass').value = saved.password || '';
+}
+
+function autoConnectMqtt() {
+  if (!auth || !hasPermission('mqtt_status') || client) return;
+  const saved = JSON.parse(localStorage.getItem('tadashy_mqtt') || 'null');
+  if (!saved?.host || !saved?.port || !saved?.username || !saved?.password) {
+    addLog('MQTT listo: faltan credenciales guardadas', 'inf');
+    return;
+  }
+  connectMqtt(saved);
+}
+
+function bindEvents() {
+  $('login-form').addEventListener('submit', login);
+  $('logout-btn').addEventListener('click', logout);
+  $('clear-log-btn').addEventListener('click', () => { $('log').innerHTML = ''; });
+  $('reset-btn').addEventListener('click', resetAll);
+  $('mqtt-form').addEventListener('submit', conectarMqtt);
+  $('mqtt-disconnect').addEventListener('click', disconnectMqtt);
+  $('publish-form').addEventListener('submit', (event) => {
+    event.preventDefault();
+    publish($('pub-topic').value.trim(), $('pub-message').value);
+  });
+  $('subscribe-btn').addEventListener('click', () => {
+    if (client?.connected) {
+      client.subscribe($('sub-topic').value.trim());
+      addLog(`Suscrito a ${$('sub-topic').value.trim()}`, 'ok');
+    }
+  });
+  $('automation-form').addEventListener('submit', createAutomation);
+  $('user-form').addEventListener('submit', createUser);
+  $('refresh-history').addEventListener('click', loadHistory);
+
+  $('nav-tabs').addEventListener('click', (event) => {
+    const button = event.target.closest('.nav-btn');
+    if (button) switchView(button.dataset.view);
+  });
+
+  document.addEventListener('input', (event) => {
+    if (event.target.matches('input[type=range][data-servo]')) mover(Number(event.target.dataset.servo), event.target.value);
+  });
+
+  document.addEventListener('change', (event) => {
+    if (event.target.matches('input[type=range][data-servo]')) mover(Number(event.target.dataset.servo), event.target.value, true);
+  });
+
+  document.addEventListener('click', (event) => {
+    const preset = event.target.closest('[data-servo][data-angle]');
+    if (preset) irA(Number(preset.dataset.servo), Number(preset.dataset.angle));
+
+    const mode = event.target.closest('[data-mode]');
+    if (mode) setModo(mode.dataset.mode);
+
+    const run = event.target.closest('[data-run-auto]');
+    if (run) runAutomation(run.dataset.runAuto);
+
+    const toggle = event.target.closest('[data-toggle-user]');
+    if (toggle) toggleUser(toggle.dataset.toggleUser);
+  });
+}
+
+bindEvents();
+hydrateMqttForm();
+renderShell();

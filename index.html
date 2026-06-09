@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>TADASHY | Centro IoT</title>
+  <link rel="icon" href="favicon.ico" />
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/tabler-icons.min.css" />
+  <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
+  <link rel="stylesheet" href="main.css" />
+</head>
+<body>
+  <div id="login-overlay">
+    <form class="login-card" id="login-form">
+      <div class="login-title">
+        <i class="ti ti-shield-lock" aria-hidden="true"></i>
+        <div>
+          <strong>TADASHY</strong>
+          <span>Acceso al sistema</span>
+        </div>
+      </div>
+      <div class="field">
+        <label for="inp-user">Usuario</label>
+        <input type="text" id="inp-user" placeholder="admin" autocomplete="username" />
+      </div>
+      <div class="field">
+        <label for="inp-pass">Contraseña</label>
+        <input type="password" id="inp-pass" placeholder="admin123" autocomplete="current-password" />
+      </div>
+      <span class="login-err" id="login-err"></span>
+      <button class="primary-btn" type="submit">
+        <i class="ti ti-login" aria-hidden="true"></i>
+        Entrar
+      </button>
+    </form>
+  </div>
+
+  <div class="app-shell" id="main">
+    <aside class="sidebar">
+      <div class="brand">
+        <i class="ti ti-robot" aria-hidden="true"></i>
+        <div>
+          <strong>TADASHY</strong>
+          <span>Centro IoT</span>
+        </div>
+      </div>
+      <nav class="nav-tabs" id="nav-tabs">
+        <button class="nav-btn active" data-view="dashboard"><i class="ti ti-dashboard"></i><span>Dashboard</span></button>
+        <button class="nav-btn" data-view="robot" data-permission="robot_control"><i class="ti ti-armchair"></i><span>Brazo</span></button>
+        <button class="nav-btn" data-view="mqtt" data-permission="mqtt_monitor"><i class="ti ti-broadcast"></i><span>MQTT</span></button>
+        <button class="nav-btn" data-view="automations" data-permission="run_automations"><i class="ti ti-player-play"></i><span>Automatizaciones</span></button>
+        <button class="nav-btn" data-view="history" data-permission="view_history"><i class="ti ti-history"></i><span>Historial</span></button>
+        <button class="nav-btn" data-view="users" data-permission="manage_users"><i class="ti ti-users"></i><span>Usuarios</span></button>
+      </nav>
+      <div class="session-box">
+        <span id="session-name">Sin sesión</span>
+        <button class="ghost-btn" id="logout-btn"><i class="ti ti-logout"></i>Salir</button>
+      </div>
+    </aside>
+
+    <main class="content">
+      <header class="topbar">
+        <div>
+          <h1 id="view-title">Dashboard IoT</h1>
+          <p id="view-subtitle">Estado en tiempo real del sistema y del broker MQTT.</p>
+        </div>
+        <div class="top-actions">
+          <span id="api-badge" class="badge badge-ok"><i class="ti ti-server"></i> Backend local</span>
+          <span id="conn-badge" class="badge badge-warn"><i class="ti ti-wifi-off"></i> MQTT desconectado</span>
+          <span id="device-badge" class="badge badge-dev-off"><i class="ti ti-cpu"></i> ESP32 sin señal</span>
+        </div>
+      </header>
+
+      <section class="view active" id="view-dashboard">
+        <div class="metric-grid">
+          <div class="metric"><span>Publicaciones</span><strong id="pub-total">0</strong></div>
+          <div class="metric"><span>Mensajes MQTT</span><strong id="mqtt-total">0</strong></div>
+          <div class="metric"><span>Automatizaciones</span><strong id="auto-total">0</strong></div>
+          <div class="metric"><span>Usuarios</span><strong id="user-total">0</strong></div>
+        </div>
+        <div class="dashboard-grid">
+          <div class="panel">
+            <div class="panel-header">
+              <p class="section-label">Telemetría</p>
+              <span id="last-seen">Sin datos</span>
+            </div>
+            <div class="telemetry-grid">
+              <div><span>Base</span><strong id="dash-base">90°</strong></div>
+              <div><span>Hombro</span><strong id="dash-shoulder">90°</strong></div>
+              <div><span>Codo</span><strong id="dash-elbow">90°</strong></div>
+              <div><span>Muñeca</span><strong id="dash-wrist">90°</strong></div>
+            </div>
+          </div>
+          <div class="panel">
+            <div class="panel-header">
+              <p class="section-label">Actividad reciente</p>
+              <button class="icon-btn" id="clear-log-btn" title="Limpiar log"><i class="ti ti-trash"></i></button>
+            </div>
+            <div id="log"></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="view" id="view-robot">
+        <div class="robot-toolbar">
+          <div class="mode-row">
+            <button class="mode-btn active" id="btn-manual" data-mode="manual"><i class="ti ti-hand-finger"></i>Manual</button>
+            <button class="mode-btn" id="btn-auto" data-mode="auto"><i class="ti ti-cpu"></i>Auto</button>
+            <a href="Brazo_vision.html" class="mode-btn"><i class="ti ti-eye"></i>Visión</a>
+          </div>
+          <button class="secondary-btn" id="reset-btn"><i class="ti ti-refresh"></i>Centrar todos</button>
+        </div>
+        <div class="grid" id="servo-grid"></div>
+      </section>
+
+      <section class="view" id="view-mqtt">
+        <div class="mqtt-layout">
+          <form class="panel mqtt-connect" id="mqtt-form">
+            <p class="section-label">Conexión MQTT</p>
+            <div class="form-grid">
+              <div class="field"><label for="mqtt-host">Host</label><input id="mqtt-host" value="41287df21912452aa44d6b4f228a5f6d.s1.eu.hivemq.cloud" /></div>
+              <div class="field"><label for="mqtt-port">Puerto WSS</label><input id="mqtt-port" value="8884" /></div>
+              <div class="field"><label for="mqtt-user">Usuario</label><input id="mqtt-user" autocomplete="username" /></div>
+              <div class="field"><label for="mqtt-pass">Contraseña</label><input id="mqtt-pass" type="password" autocomplete="current-password" /></div>
+            </div>
+            <div class="button-row">
+              <button class="primary-btn" type="submit"><i class="ti ti-plug-connected"></i>Conectar MQTT</button>
+              <button class="ghost-btn" type="button" id="mqtt-disconnect"><i class="ti ti-plug-off"></i>Desconectar</button>
+            </div>
+          </form>
+          <form class="panel" id="publish-form">
+            <p class="section-label">Publicar mensaje</p>
+            <div class="field"><label for="pub-topic">Topic</label><input id="pub-topic" value="brazo/comando" /></div>
+            <div class="field"><label for="pub-message">Mensaje</label><textarea id="pub-message">{"accion":"ping"}</textarea></div>
+            <button class="secondary-btn" type="submit"><i class="ti ti-send"></i>Publicar</button>
+          </form>
+        </div>
+        <div class="panel">
+          <div class="panel-header">
+            <p class="section-label">Explorador MQTT</p>
+            <div class="inline-controls">
+              <input id="sub-topic" value="brazo/#" />
+              <button class="secondary-btn" id="subscribe-btn"><i class="ti ti-list-search"></i>Suscribir</button>
+            </div>
+          </div>
+          <div class="mqtt-table" id="mqtt-messages"></div>
+        </div>
+      </section>
+
+      <section class="view" id="view-automations">
+        <div class="split-grid">
+          <form class="panel" id="automation-form">
+            <p class="section-label">Nueva automatización</p>
+            <div class="field"><label for="auto-name">Nombre</label><input id="auto-name" placeholder="Secuencia de prueba" /></div>
+            <div class="field"><label for="auto-steps">Pasos JSON</label><textarea id="auto-steps">[{"servo":1,"angle":45,"delay":300},{"servo":2,"angle":120,"delay":300},{"servo":1,"angle":90,"delay":300}]</textarea></div>
+            <button class="primary-btn" type="submit"><i class="ti ti-device-floppy"></i>Guardar</button>
+          </form>
+          <div class="panel">
+            <p class="section-label">Secuencias</p>
+            <div class="list" id="automation-list"></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="view" id="view-history">
+        <div class="panel">
+          <div class="panel-header">
+            <p class="section-label">Historial guardado</p>
+            <button class="secondary-btn" id="refresh-history"><i class="ti ti-refresh"></i>Actualizar</button>
+          </div>
+          <div class="history-list" id="history-list"></div>
+        </div>
+      </section>
+
+      <section class="view" id="view-users">
+        <div class="split-grid">
+          <form class="panel" id="user-form">
+            <p class="section-label">Crear usuario</p>
+            <div class="field"><label for="new-username">Usuario</label><input id="new-username" /></div>
+            <div class="field"><label for="new-password">Contraseña</label><input id="new-password" type="password" /></div>
+            <div class="field">
+              <label for="new-role">Rol</label>
+              <select id="new-role">
+                <option value="super_admin">Super Admin</option>
+                <option value="operator">Operador</option>
+                <option value="guest">Invitado</option>
+              </select>
+            </div>
+            <button class="primary-btn" type="submit"><i class="ti ti-user-plus"></i>Crear</button>
+          </form>
+          <div class="panel">
+            <p class="section-label">Usuarios registrados</p>
+            <div class="list" id="user-list"></div>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script src="script.js"></script>
+</body>
+</html>

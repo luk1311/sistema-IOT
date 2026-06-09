@@ -1,0 +1,984 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>TADASHY | Visión artificial</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/tabler-icons.min.css" />
+  <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js" crossorigin="anonymous"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #0e0b1a;
+      --panel: #17112e;
+      --panel-2: #1e1638;
+      --line: rgba(160, 130, 255, 0.18);
+      --line-strong: rgba(160, 130, 255, 0.34);
+      --text: #e0d9f7;
+      --muted: #9d8ec7;
+      --dim: #7c6aaa;
+      --accent: #7c6aff;
+      --accent-2: #3ecf8e;
+      --warn: #f0b429;
+      --err: #f87191;
+    }
+
+    body {
+      min-height: 100vh;
+      overflow: hidden;
+      font-family: Arial, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+    }
+
+    button, input { font: inherit; }
+    button { cursor: pointer; }
+
+    .locked {
+      min-height: 100vh;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+    }
+
+    .locked-card {
+      width: 100%;
+      max-width: 460px;
+      padding: 2.4rem;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      background: var(--panel);
+      border: 0.5px solid var(--line-strong);
+      border-radius: 12px;
+    }
+
+    .locked-card i { color: var(--accent); font-size: 28px; }
+    .locked-card h1 { font-size: 22px; }
+    .locked-card p { color: var(--dim); font-size: 14px; line-height: 1.45; }
+
+    .app {
+      display: none;
+      min-height: 100vh;
+      grid-template-rows: auto minmax(0, 1fr);
+    }
+
+    .app-header {
+      min-height: 62px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      padding: 12px 18px;
+      background: var(--panel);
+      border-bottom: 0.5px solid var(--line);
+    }
+
+    .header-left, .header-right, .button-row, .mode-group, .metric-strip {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      color: #c4b5fd;
+      font-size: 14px;
+      font-weight: 700;
+    }
+
+    .brand i { color: var(--accent); font-size: 22px; }
+    .brand span { display: block; color: var(--dim); font-size: 11px; font-weight: 500; margin-top: 2px; }
+
+    .badge {
+      min-height: 26px;
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 4px 10px;
+      border-radius: 8px;
+      font-size: 11px;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+
+    .badge-warn { background: #2e2200; color: var(--warn); }
+    .badge-ok { background: #0f1f2e; color: var(--accent); border: 0.5px solid var(--accent); }
+    .badge-err { background: #2e0a1a; color: var(--err); }
+    .badge-dev-on { background: #0a2e1a; color: var(--accent-2); border: 0.5px solid var(--accent-2); }
+    .badge-dev-off { background: #2e2200; color: var(--warn); }
+
+    .primary-btn, .secondary-btn, .ghost-btn, .mode-pill, .icon-btn {
+      min-height: 36px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      padding: 0 12px;
+      border-radius: 8px;
+      border: 0.5px solid var(--line-strong);
+      color: var(--text);
+      text-decoration: none;
+    }
+
+    .primary-btn { background: var(--accent); border-color: var(--accent); font-weight: 700; }
+    .secondary-btn, .mode-pill, .icon-btn { background: var(--panel-2); color: var(--muted); }
+    .ghost-btn { background: transparent; color: var(--dim); }
+    .secondary-btn:hover, .ghost-btn:hover, .mode-pill:hover, .icon-btn:hover { border-color: var(--accent); color: var(--text); }
+    .mode-pill.active { background: #1e1050; color: #c4b5fd; border-color: var(--accent); }
+
+    .main-layout {
+      min-height: 0;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 340px;
+    }
+
+    .camera-side {
+      min-width: 0;
+      min-height: 0;
+      display: grid;
+      grid-template-rows: auto auto minmax(0, 1fr);
+      border-right: 0.5px solid var(--line);
+    }
+
+    .toolbar, .metric-strip {
+      padding: 10px 16px;
+      background: #120d24;
+      border-bottom: 0.5px solid var(--line);
+    }
+
+    .toolbar { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+    .metric-strip { font-size: 11px; color: var(--dim); }
+    .metric-strip strong { color: var(--accent); font-family: Consolas, monospace; min-width: 30px; }
+
+    .hand-box {
+      width: 22px;
+      height: 22px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      border: 0.5px solid var(--line-strong);
+      border-radius: 6px;
+      color: var(--dim);
+    }
+
+    .hand-box.detected { border-color: var(--accent-2); color: var(--accent-2); background: rgba(62, 207, 142, 0.08); }
+
+    .cam-wrapper {
+      position: relative;
+      min-height: 0;
+      overflow: hidden;
+      background: #000;
+    }
+
+    #videoElement, #outputCanvas {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      transform: scaleX(-1);
+    }
+
+    #videoElement { opacity: 0.82; }
+
+    .no-cam-msg {
+      position: absolute;
+      inset: 0;
+      z-index: 2;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 12px;
+      color: #4a3f6b;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      font-size: 12px;
+    }
+
+    .no-cam-msg i { font-size: 52px; opacity: 0.45; }
+
+    .corner { position: absolute; width: 24px; height: 24px; border-color: rgba(124, 106, 255, 0.5); border-style: solid; pointer-events: none; z-index: 3; }
+    .corner.tl { top: 14px; left: 14px; border-width: 2px 0 0 2px; }
+    .corner.tr { top: 14px; right: 14px; border-width: 2px 2px 0 0; }
+    .corner.bl { bottom: 14px; left: 14px; border-width: 0 0 2px 2px; }
+    .corner.br { bottom: 14px; right: 14px; border-width: 0 2px 2px 0; }
+
+    .gesture-badge {
+      position: absolute;
+      left: 50%;
+      bottom: 18px;
+      z-index: 4;
+      transform: translateX(-50%);
+      opacity: 0;
+      padding: 8px 22px;
+      background: rgba(14, 11, 26, 0.88);
+      border: 0.5px solid var(--accent);
+      border-radius: 20px;
+      color: #c4b5fd;
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      transition: opacity 0.2s;
+      white-space: nowrap;
+    }
+
+    .gesture-badge.show { opacity: 1; }
+
+    .right-panel {
+      min-height: 0;
+      overflow-y: auto;
+      background: var(--panel);
+    }
+
+    .panel-block {
+      padding: 15px 16px;
+      border-bottom: 0.5px solid rgba(160, 130, 255, 0.1);
+    }
+
+    .block-label {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      margin-bottom: 12px;
+      color: var(--dim);
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+    }
+
+    .block-label::after { content: ''; flex: 1; height: 0.5px; background: rgba(160, 130, 255, 0.12); }
+
+    .field { display: flex; flex-direction: column; gap: 5px; margin-bottom: 9px; }
+    .field label { color: var(--dim); font-size: 10px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; }
+    .field input {
+      width: 100%;
+      min-height: 36px;
+      padding: 8px 10px;
+      background: var(--panel-2);
+      border: 0.5px solid var(--line-strong);
+      border-radius: 8px;
+      color: var(--text);
+      outline: none;
+    }
+
+    .field input:focus { border-color: var(--accent); }
+
+    .servo-row { display: flex; align-items: center; gap: 8px; margin-bottom: 11px; }
+    .servo-name { width: 58px; flex-shrink: 0; color: var(--dim); font-size: 10px; letter-spacing: 0.05em; text-transform: uppercase; }
+    .servo-track { position: relative; flex: 1; height: 4px; border-radius: 2px; background: rgba(124, 106, 255, 0.15); }
+    .servo-fill { height: 100%; border-radius: 2px; background: linear-gradient(90deg, var(--accent), #a78bff); transition: width 0.12s ease; }
+    .servo-thumb { position: absolute; top: 50%; width: 10px; height: 10px; border-radius: 50%; background: var(--accent); transform: translate(-50%, -50%); box-shadow: 0 0 6px rgba(124, 106, 255, 0.6); transition: left 0.12s ease; }
+    .servo-val { width: 38px; flex-shrink: 0; text-align: right; color: #c4b5fd; font-family: Consolas, monospace; font-size: 12px; }
+
+    .gripper-wrap { display: flex; align-items: center; justify-content: center; gap: 16px; padding: 8px 0; }
+    .gripper-jaw { width: 12px; height: 44px; border: 0.5px solid var(--line-strong); border-radius: 3px; background: rgba(160, 130, 255, 0.1); transition: transform 0.2s ease; }
+    .gripper-jaw.left { transform-origin: right center; }
+    .gripper-jaw.right { transform-origin: left center; }
+    .gripper-center { text-align: center; }
+    .gripper-pct { color: var(--err); font-size: 24px; line-height: 1; }
+    .gripper-sub { color: var(--dim); font-size: 10px; letter-spacing: 0.06em; margin-top: 3px; }
+
+    .lm-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; }
+    .lm-card { padding: 8px 10px; background: rgba(124, 106, 255, 0.04); border: 0.5px solid rgba(160, 130, 255, 0.12); border-radius: 7px; }
+    .lm-name { margin-bottom: 4px; color: #4a3f6b; font-size: 9px; letter-spacing: 0.08em; text-transform: uppercase; }
+    .lm-val { color: var(--muted); font-family: Consolas, monospace; font-size: 12px; }
+    .lm-val span { color: #c4b5fd; }
+
+    .arm-wrap { display: flex; justify-content: center; padding: 6px 0; }
+
+    #mqtt-log {
+      max-height: 150px;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column-reverse;
+      gap: 4px;
+    }
+
+    .log-row {
+      display: grid;
+      grid-template-columns: 60px minmax(0, 1fr);
+      gap: 8px;
+      padding: 3px 0;
+      border-bottom: 0.5px solid rgba(160, 130, 255, 0.06);
+      font-family: Consolas, monospace;
+      font-size: 10px;
+    }
+
+    .log-ts { color: #4a3f6b; }
+    .log-ok { color: var(--accent-2); }
+    .log-err { color: var(--err); }
+    .log-inf { color: var(--muted); }
+    .log-dev { color: var(--accent); }
+
+    @media (max-width: 900px) {
+      body { overflow: auto; }
+      .app { min-height: 100vh; }
+      .main-layout { grid-template-columns: 1fr; }
+      .camera-side { min-height: 68vh; border-right: 0; }
+      .right-panel { overflow: visible; }
+      .app-header { align-items: flex-start; flex-direction: column; }
+    }
+  </style>
+</head>
+<body>
+  <div class="locked" id="locked">
+    <div class="locked-card">
+      <i class="ti ti-shield-lock" aria-hidden="true"></i>
+      <h1>Acceso requerido</h1>
+      <p>Inicia sesión en el panel principal para usar el control por visión artificial.</p>
+      <a class="primary-btn" href="index.html"><i class="ti ti-login"></i>Ir al panel</a>
+    </div>
+  </div>
+
+  <div class="app" id="app">
+    <header class="app-header">
+      <div class="header-left">
+        <div class="brand">
+          <i class="ti ti-eye" aria-hidden="true"></i>
+          <div>
+            TADASHY
+            <span>Visión artificial</span>
+          </div>
+        </div>
+        <span id="session-badge" class="badge badge-ok"><i class="ti ti-user"></i>Sesión activa</span>
+      </div>
+      <div class="header-right">
+        <span id="device-badge" class="badge badge-dev-off"><i class="ti ti-cpu"></i>ESP32 sin señal</span>
+        <span id="conn-badge" class="badge badge-warn"><i class="ti ti-wifi-off"></i>MQTT desconectado</span>
+        <a href="index.html" class="ghost-btn"><i class="ti ti-arrow-left"></i>Panel</a>
+      </div>
+    </header>
+
+    <main class="main-layout">
+      <section class="camera-side">
+        <div class="toolbar">
+          <div class="button-row">
+            <button class="secondary-btn" id="startBtn"><i class="ti ti-player-play"></i>Iniciar cámara</button>
+            <button class="secondary-btn" id="centerBtn"><i class="ti ti-refresh"></i>Centrar</button>
+          </div>
+          <div class="mode-group">
+            <button class="mode-pill active" id="modePos" data-mode="position">Posición</button>
+            <button class="mode-pill" id="modeGest" data-mode="gesture">Gestos</button>
+          </div>
+        </div>
+
+        <div class="metric-strip">
+          <span>FPS</span><strong id="fpsVal">--</strong>
+          <span>Mano</span><span class="hand-box" id="handBox"><i class="ti ti-hand-stop"></i></span>
+          <span>Confianza</span><strong id="confVal">--%</strong>
+          <span id="modeLabel" style="margin-left:auto;">Modo: Posición</span>
+        </div>
+
+        <div class="cam-wrapper">
+          <div class="no-cam-msg" id="noCamMsg">
+            <i class="ti ti-camera-off"></i>
+            <span>Presiona Iniciar cámara</span>
+          </div>
+          <video id="videoElement" autoplay playsinline muted></video>
+          <canvas id="outputCanvas"></canvas>
+          <div class="corner tl"></div>
+          <div class="corner tr"></div>
+          <div class="corner bl"></div>
+          <div class="corner br"></div>
+          <div class="gesture-badge" id="gestureBadge"></div>
+        </div>
+      </section>
+
+      <aside class="right-panel">
+        <div class="panel-block">
+          <div class="block-label"><i class="ti ti-plug-connected"></i>Conexión MQTT</div>
+          <form id="mqtt-form">
+            <div class="field">
+              <label for="mqtt-host">Host</label>
+              <input id="mqtt-host" value="41287df21912452aa44d6b4f228a5f6d.s1.eu.hivemq.cloud" />
+            </div>
+            <div class="field">
+              <label for="mqtt-port">Puerto WSS</label>
+              <input id="mqtt-port" value="8884" />
+            </div>
+            <div class="field">
+              <label for="mqtt-user">Usuario MQTT</label>
+              <input id="mqtt-user" autocomplete="username" />
+            </div>
+            <div class="field">
+              <label for="mqtt-pass">Contraseña MQTT</label>
+              <input id="mqtt-pass" type="password" autocomplete="current-password" />
+            </div>
+            <div class="button-row">
+              <button class="primary-btn" type="submit"><i class="ti ti-wifi"></i>Conectar</button>
+              <button class="ghost-btn" type="button" id="disconnectBtn"><i class="ti ti-plug-off"></i>Cortar</button>
+            </div>
+          </form>
+        </div>
+
+        <div class="panel-block">
+          <div class="block-label"><i class="ti ti-adjustments-horizontal"></i>Servos</div>
+          <div class="servo-row"><span class="servo-name">Base</span><div class="servo-track"><div class="servo-fill" id="fillBase" style="width:50%"></div><div class="servo-thumb" id="thumbBase" style="left:50%"></div></div><span class="servo-val" id="valBase">90°</span></div>
+          <div class="servo-row"><span class="servo-name">Hombro</span><div class="servo-track"><div class="servo-fill" id="fillShoulder" style="width:50%"></div><div class="servo-thumb" id="thumbShoulder" style="left:50%"></div></div><span class="servo-val" id="valShoulder">90°</span></div>
+          <div class="servo-row"><span class="servo-name">Codo</span><div class="servo-track"><div class="servo-fill" id="fillElbow" style="width:50%"></div><div class="servo-thumb" id="thumbElbow" style="left:50%"></div></div><span class="servo-val" id="valElbow">90°</span></div>
+          <div class="servo-row"><span class="servo-name">Muñeca</span><div class="servo-track"><div class="servo-fill" id="fillWrist" style="width:50%"></div><div class="servo-thumb" id="thumbWrist" style="left:50%"></div></div><span class="servo-val" id="valWrist">90°</span></div>
+        </div>
+
+        <div class="panel-block">
+          <div class="block-label"><i class="ti ti-hand-grab"></i>Gripper</div>
+          <div class="gripper-wrap">
+            <div class="gripper-jaw left" id="jawLeft"></div>
+            <div class="gripper-center">
+              <div class="gripper-pct" id="gripperPct">50%</div>
+              <div class="gripper-sub">apertura</div>
+            </div>
+            <div class="gripper-jaw right" id="jawRight"></div>
+          </div>
+        </div>
+
+        <div class="panel-block">
+          <div class="block-label"><i class="ti ti-point"></i>Landmarks</div>
+          <div class="lm-grid">
+            <div class="lm-card"><div class="lm-name">Muñeca</div><div class="lm-val">X:<span id="lmWristX">--</span></div><div class="lm-val">Y:<span id="lmWristY">--</span></div></div>
+            <div class="lm-card"><div class="lm-name">Índice</div><div class="lm-val">X:<span id="lmIndexX">--</span></div><div class="lm-val">Y:<span id="lmIndexY">--</span></div></div>
+            <div class="lm-card"><div class="lm-name">Pulgar</div><div class="lm-val">X:<span id="lmThumbX">--</span></div><div class="lm-val">Y:<span id="lmThumbY">--</span></div></div>
+            <div class="lm-card"><div class="lm-name">Pinza</div><div class="lm-val">D:<span id="lmDist">--</span></div><div class="lm-val">G:<span id="lmGrip">--</span></div></div>
+          </div>
+        </div>
+
+        <div class="panel-block">
+          <div class="block-label"><i class="ti ti-robot"></i>Vista del brazo</div>
+          <div class="arm-wrap">
+            <svg id="armSvg" width="160" height="160" viewBox="0 0 160 160" aria-label="Vista esquemática del brazo">
+              <rect x="58" y="140" width="44" height="12" rx="2" fill="#1e1638" stroke="rgba(124,106,255,0.4)" />
+              <line x1="80" y1="140" x2="80" y2="128" stroke="rgba(124,106,255,0.4)" stroke-width="2" />
+              <line id="svgShoulder" x1="80" y1="128" x2="80" y2="88" stroke="#7c6aff" stroke-width="4" stroke-linecap="round" />
+              <line id="svgElbow" x1="80" y1="88" x2="80" y2="58" stroke="#f87191" stroke-width="4" stroke-linecap="round" />
+              <line id="svgWrist" x1="80" y1="58" x2="80" y2="40" stroke="#3ecf8e" stroke-width="3" stroke-linecap="round" />
+              <circle cx="80" cy="128" r="5" fill="#7c6aff" />
+              <circle id="cjShoulder" cx="80" cy="88" r="4" fill="#c4b5fd" />
+              <circle id="cjElbow" cx="80" cy="58" r="4" fill="#f87191" />
+              <circle id="cjWrist" cx="80" cy="40" r="4" fill="#3ecf8e" />
+            </svg>
+          </div>
+        </div>
+
+        <div class="panel-block">
+          <div class="block-label"><i class="ti ti-terminal-2"></i>Log</div>
+          <div id="mqtt-log"></div>
+        </div>
+      </aside>
+    </main>
+  </div>
+
+  <script>
+    const API = '/api';
+    const auth = JSON.parse(localStorage.getItem('tadashy_auth') || 'null');
+    const savedMqtt = JSON.parse(localStorage.getItem('tadashy_mqtt') || 'null');
+    const roleLabels = {
+      super_admin: 'Super Admin',
+      admin: 'Super Admin',
+      operator: 'Operador',
+      guest: 'Invitado',
+      viewer: 'Invitado'
+    };
+    const canUseVision = auth?.user?.permissions?.includes('robot_control') && auth?.user?.permissions?.includes('mqtt_status');
+
+    let mqttClient = null;
+    let cameraRunning = false;
+    let controlMode = 'position';
+    let handsInstance = null;
+    let cameraInstance = null;
+    let frameCount = 0;
+    let lastFrameTime = Date.now();
+    let lastPublish = 0;
+    let deviceTimer = null;
+    let gestureTimer = null;
+    let gripperOpen = 50;
+
+    const EMA_ALPHA = 0.22;
+    const smoothed = { base: 90, shoulder: 90, elbow: 90, wrist: 90 };
+    const videoEl = document.getElementById('videoElement');
+    const canvas = document.getElementById('outputCanvas');
+    const ctx = canvas.getContext('2d');
+
+    function init() {
+      if (!auth || !canUseVision) {
+        document.getElementById('locked').style.display = 'flex';
+        return;
+      }
+
+      document.getElementById('app').style.display = 'grid';
+      document.getElementById('session-badge').innerHTML = `<i class="ti ti-user"></i>${auth.user.username} · ${roleLabels[auth.user.role] || auth.user.role}`;
+
+      if (savedMqtt) {
+        document.getElementById('mqtt-host').value = savedMqtt.host || document.getElementById('mqtt-host').value;
+        document.getElementById('mqtt-port').value = savedMqtt.port || document.getElementById('mqtt-port').value;
+        document.getElementById('mqtt-user').value = savedMqtt.username || '';
+        document.getElementById('mqtt-pass').value = savedMqtt.password || '';
+      }
+
+      document.getElementById('startBtn').addEventListener('click', toggleCamera);
+      document.getElementById('centerBtn').addEventListener('click', centerServos);
+      document.getElementById('mqtt-form').addEventListener('submit', connectMqtt);
+      document.getElementById('disconnectBtn').addEventListener('click', disconnectMqtt);
+      document.querySelectorAll('[data-mode]').forEach((button) => {
+        button.addEventListener('click', () => setMode(button.dataset.mode));
+      });
+
+      updateServosUI(90, 90, 90, 90, 50);
+      addLog('Vista de visión lista', 'inf');
+      autoConnectMqtt();
+    }
+
+    async function api(path, options = {}) {
+      const headers = { 'Content-Type': 'application/json', ...(options.headers || {}) };
+      if (auth?.token) headers.Authorization = `Bearer ${auth.token}`;
+      const response = await fetch(API + path, { ...options, headers });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || 'Error de servidor');
+      return data;
+    }
+
+    async function saveHistory(type, detail, metadata = {}) {
+      try {
+        await api('/history', {
+          method: 'POST',
+          body: JSON.stringify({ type, detail, metadata })
+        });
+      } catch {
+        addLog('No se pudo guardar historial', 'err');
+      }
+    }
+
+    function autoConnectMqtt() {
+      const saved = JSON.parse(localStorage.getItem('tadashy_mqtt') || 'null');
+      if (!saved?.host || !saved?.port || !saved?.username || !saved?.password || mqttClient) {
+        if (!saved?.password) addLog('MQTT listo: faltan credenciales guardadas', 'inf');
+        return;
+      }
+      connectMqtt({ preventDefault() {} });
+    }
+
+    function addLog(message, type = 'inf') {
+      const row = document.createElement('div');
+      row.className = 'log-row';
+      row.innerHTML = `<span class="log-ts">${new Date().toLocaleTimeString('es-CO')}</span><span class="log-${type}">${escapeHtml(message)}</span>`;
+      document.getElementById('mqtt-log').prepend(row);
+      while (document.getElementById('mqtt-log').children.length > 80) {
+        document.getElementById('mqtt-log').removeChild(document.getElementById('mqtt-log').lastChild);
+      }
+    }
+
+    function escapeHtml(value) {
+      return String(value).replace(/[&<>"']/g, (ch) => ({
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        '"': '&quot;',
+        "'": '&#039;'
+      }[ch]));
+    }
+
+    function connectMqtt(event) {
+      event.preventDefault();
+      const host = document.getElementById('mqtt-host').value.trim();
+      const port = document.getElementById('mqtt-port').value.trim();
+      const username = document.getElementById('mqtt-user').value.trim();
+      const password = document.getElementById('mqtt-pass').value;
+
+      if (!host || !port || !username || !password) {
+        addLog('Completa la conexión MQTT', 'err');
+        return;
+      }
+
+      localStorage.setItem('tadashy_mqtt', JSON.stringify({ host, port, username, password }));
+      disconnectMqtt(false);
+
+      mqttClient = mqtt.connect(`wss://${host}:${port}/mqtt`, {
+        username,
+        password,
+        clientId: 'tadashy_vision_' + Math.random().toString(16).slice(2, 8),
+        connectTimeout: 6000,
+        reconnectPeriod: 2000,
+        keepalive: 30
+      });
+
+      mqttClient.on('connect', () => {
+        document.getElementById('conn-badge').className = 'badge badge-ok';
+        document.getElementById('conn-badge').innerHTML = '<i class="ti ti-wifi"></i>MQTT conectado';
+        mqttClient.subscribe('brazo/status');
+        for (let i = 1; i <= 4; i++) mqttClient.subscribe('brazo/servo/feedback/' + i);
+        publish('brazo/modo', 'vision', 0, false);
+        addLog('Broker conectado', 'ok');
+        saveHistory('vision_mqtt', `Visión conectada a ${host}`);
+      });
+
+      mqttClient.on('offline', () => {
+        document.getElementById('conn-badge').className = 'badge badge-warn';
+        document.getElementById('conn-badge').innerHTML = '<i class="ti ti-wifi-off"></i>MQTT desconectado';
+      });
+
+      mqttClient.on('error', (error) => {
+        document.getElementById('conn-badge').className = 'badge badge-err';
+        document.getElementById('conn-badge').innerHTML = '<i class="ti ti-alert-triangle"></i>Error MQTT';
+        addLog(error.message || 'Error MQTT', 'err');
+      });
+
+      mqttClient.on('message', (topic, payloadBuffer) => {
+        const payload = payloadBuffer.toString();
+        if (topic === 'brazo/status') {
+          setDevice(payload === 'online');
+          return;
+        }
+
+        const match = topic.match(/^brazo\/servo\/feedback\/(\d)$/);
+        if (match) {
+          const angle = Number(payload);
+          if (Number.isFinite(angle)) {
+            const names = ['Base', 'Shoulder', 'Elbow', 'Wrist'];
+            setServoUI(names[Number(match[1]) - 1], angle);
+          }
+        }
+      });
+    }
+
+    function disconnectMqtt(log = true) {
+      if (mqttClient) mqttClient.end(true);
+      mqttClient = null;
+      document.getElementById('conn-badge').className = 'badge badge-warn';
+      document.getElementById('conn-badge').innerHTML = '<i class="ti ti-wifi-off"></i>MQTT desconectado';
+      if (log) addLog('Broker desconectado', 'inf');
+    }
+
+    function publish(topic, payload, throttleMs = 0, writeLog = true) {
+      if (!mqttClient?.connected) return false;
+      const now = Date.now();
+      if (throttleMs && now - lastPublish < throttleMs) return false;
+      lastPublish = now;
+      mqttClient.publish(topic, String(payload));
+      if (writeLog) addLog(`${topic} -> ${payload}`, 'ok');
+      return true;
+    }
+
+    function setDevice(online) {
+      const badge = document.getElementById('device-badge');
+      badge.className = online ? 'badge badge-dev-on' : 'badge badge-dev-off';
+      badge.innerHTML = online ? '<i class="ti ti-cpu"></i>ESP32 conectado' : '<i class="ti ti-cpu"></i>ESP32 sin señal';
+      clearTimeout(deviceTimer);
+      if (online) deviceTimer = setTimeout(() => setDevice(false), 6000);
+    }
+
+    async function toggleCamera() {
+      cameraRunning ? stopCamera() : await startCamera();
+    }
+
+    async function startCamera() {
+      document.getElementById('noCamMsg').style.display = 'none';
+
+      if (!handsInstance) {
+        handsInstance = new Hands({
+          locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
+        });
+        handsInstance.setOptions({
+          maxNumHands: 1,
+          modelComplexity: 0,
+          minDetectionConfidence: 0.75,
+          minTrackingConfidence: 0.65,
+          selfieMode: true
+        });
+        handsInstance.onResults(onResults);
+      }
+
+      try {
+        cameraInstance = new Camera(videoEl, {
+          onFrame: async () => {
+            canvas.width = videoEl.videoWidth || 1280;
+            canvas.height = videoEl.videoHeight || 720;
+            await handsInstance.send({ image: videoEl });
+            updateFPS();
+          },
+          width: 1280,
+          height: 720,
+          facingMode: 'user'
+        });
+
+        await cameraInstance.start();
+        cameraRunning = true;
+        document.getElementById('startBtn').innerHTML = '<i class="ti ti-player-stop"></i>Detener';
+        document.getElementById('startBtn').classList.add('badge-err');
+        publish('brazo/vision', '{"camera":true}', 0, false);
+        addLog('Cámara iniciada', 'ok');
+        saveHistory('vision_camera', 'Cámara de visión iniciada');
+      } catch (error) {
+        document.getElementById('noCamMsg').style.display = 'flex';
+        addLog(`Error cámara: ${error.message}`, 'err');
+      }
+    }
+
+    function stopCamera() {
+      if (cameraInstance) cameraInstance.stop();
+      cameraInstance = null;
+      cameraRunning = false;
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      document.getElementById('noCamMsg').style.display = 'flex';
+      document.getElementById('handBox').classList.remove('detected');
+      document.getElementById('fpsVal').textContent = '--';
+      document.getElementById('confVal').textContent = '--%';
+      document.getElementById('startBtn').innerHTML = '<i class="ti ti-player-play"></i>Iniciar cámara';
+      document.getElementById('startBtn').classList.remove('badge-err');
+      publish('brazo/vision', '{"camera":false}', 0, false);
+      addLog('Cámara detenida', 'inf');
+    }
+
+    function updateFPS() {
+      frameCount++;
+      const now = Date.now();
+      if (now - lastFrameTime >= 1000) {
+        document.getElementById('fpsVal').textContent = frameCount;
+        frameCount = 0;
+        lastFrameTime = now;
+      }
+    }
+
+    function onResults(results) {
+      ctx.save();
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      if (results.multiHandLandmarks?.length) {
+        document.getElementById('handBox').classList.add('detected');
+        const lm = results.multiHandLandmarks[0];
+        const handedness = results.multiHandedness?.[0]?.label ?? 'Right';
+        const isRightHand = handedness === 'Left';
+        const confidence = Math.round((results.multiHandedness?.[0]?.score ?? 0.97) * 100);
+        document.getElementById('confVal').textContent = `${confidence}%`;
+
+        drawConnectors(ctx, lm, HAND_CONNECTIONS, { color: 'rgba(124,106,255,0.75)', lineWidth: 3 });
+        drawLandmarks(ctx, lm, { color: '#c4b5fd', fillColor: 'rgba(124,106,255,0.35)', lineWidth: 1, radius: 3 });
+
+        drawKeyPoint(lm[0], '#f0b429', 8);
+        drawKeyPoint(lm[4], '#f87191', 8);
+        drawKeyPoint(lm[8], '#3ecf8e', 8);
+
+        if (controlMode === 'position') processPositionMode(lm, isRightHand);
+        else processGestureMode(lm, isRightHand);
+      } else {
+        document.getElementById('handBox').classList.remove('detected');
+        document.getElementById('confVal').textContent = '--%';
+      }
+
+      ctx.restore();
+    }
+
+    function drawKeyPoint(point, color, radius) {
+      const x = point.x * canvas.width;
+      const y = point.y * canvas.height;
+      ctx.shadowColor = color;
+      ctx.shadowBlur = 12;
+      ctx.beginPath();
+      ctx.arc(x, y, radius, 0, Math.PI * 2);
+      ctx.fillStyle = color;
+      ctx.fill();
+      ctx.shadowBlur = 0;
+      ctx.strokeStyle = 'rgba(255,255,255,0.7)';
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+    }
+
+    function processPositionMode(lm, isRightHand) {
+      const wrist = lm[0];
+      const indexTip = lm[8];
+      const thumbTip = lm[4];
+      const indexMcp = lm[5];
+      const pinkyMcp = lm[17];
+      const rawBase = clamp((1 - wrist.x) * 180, 0, 180);
+      const rawShoulder = clamp((1 - wrist.y) * 160 + 10, 10, 170);
+      const rawElbow = clamp(90 + (wrist.y - indexTip.y) * 280, 0, 180);
+      const tilt = isRightHand ? pinkyMcp.y - indexMcp.y : indexMcp.y - pinkyMcp.y;
+      const rawWrist = clamp(90 + tilt * 300, 0, 180);
+      const dist = Math.hypot(thumbTip.x - indexTip.x, thumbTip.y - indexTip.y);
+      const grip = clamp(dist * 600, 0, 100);
+
+      smoothed.base = ema(smoothed.base, rawBase);
+      smoothed.shoulder = ema(smoothed.shoulder, rawShoulder);
+      smoothed.elbow = ema(smoothed.elbow, rawElbow);
+      smoothed.wrist = ema(smoothed.wrist, rawWrist);
+
+      updateServosUI(smoothed.base, smoothed.shoulder, smoothed.elbow, smoothed.wrist, grip);
+      updateLandmarks(wrist, indexTip, thumbTip, dist, grip);
+
+      const published = publishServoPacket(smoothed.base, smoothed.shoulder, smoothed.elbow, smoothed.wrist, 100);
+      if (published) addLog(`B:${smoothed.base} H:${smoothed.shoulder} C:${smoothed.elbow} M:${smoothed.wrist}`, 'ok');
+    }
+
+    const GESTURE_CMDS = {
+      ABIERTO: { base: 90, shoulder: 135, elbow: 90, wrist: 90, grip: 100 },
+      PUÑO: { base: 90, shoulder: 45, elbow: 45, wrist: 90, grip: 0 },
+      APUNTAR: { base: 90, shoulder: 90, elbow: 160, wrist: 90, grip: 0 },
+      PAZ: { base: 90, shoulder: 90, elbow: 90, wrist: 135, grip: 50 },
+      MEÑIQUE: { base: 45, shoulder: 90, elbow: 90, wrist: 90, grip: 80 },
+      'PULGAR ARRIBA': { base: 90, shoulder: 170, elbow: 90, wrist: 90, grip: 50 }
+    };
+
+    function processGestureMode(lm, isRightHand) {
+      const gesture = detectGesture(lm, isRightHand);
+      if (!gesture) return;
+      showGesture(gesture);
+      const cmd = GESTURE_CMDS[gesture];
+      if (!cmd) return;
+      updateServosUI(cmd.base, cmd.shoulder, cmd.elbow, cmd.wrist, cmd.grip);
+      if (publishServoPacket(cmd.base, cmd.shoulder, cmd.elbow, cmd.wrist, 300)) {
+        addLog(`Gesto: ${gesture}`, 'ok');
+      }
+    }
+
+    function detectGesture(lm, isRightHand) {
+      const tips = [4, 8, 12, 16, 20];
+      const mids = [3, 6, 10, 14, 18];
+      const fingers = tips.map((tip, index) => {
+        if (index === 0) return isRightHand ? lm[tip].x < lm[mids[index]].x : lm[tip].x > lm[mids[index]].x;
+        return lm[tip].y < lm[mids[index]].y;
+      });
+      const [thumb, index, middle, ring, pinky] = fingers;
+      if (thumb && index && middle && ring && pinky) return 'ABIERTO';
+      if (!index && !middle && !ring && !pinky) return 'PUÑO';
+      if (index && !middle && !ring && !pinky) return 'APUNTAR';
+      if (index && middle && !ring && !pinky) return 'PAZ';
+      if (!index && !middle && !ring && pinky) return 'MEÑIQUE';
+      if (thumb && !index && !middle && !ring && !pinky) return 'PULGAR ARRIBA';
+      return null;
+    }
+
+    function publishServoPacket(base, shoulder, elbow, wrist, throttleMs) {
+      if (!mqttClient?.connected) return false;
+      const now = Date.now();
+      if (now - lastPublish < throttleMs) return false;
+      lastPublish = now;
+      mqttClient.publish('brazo/servo/1', String(base));
+      mqttClient.publish('brazo/servo/2', String(shoulder));
+      mqttClient.publish('brazo/servo/3', String(elbow));
+      mqttClient.publish('brazo/servo/4', String(wrist));
+      return true;
+    }
+
+    function updateServosUI(base, shoulder, elbow, wrist, grip) {
+      setServoUI('Base', base);
+      setServoUI('Shoulder', shoulder);
+      setServoUI('Elbow', elbow);
+      setServoUI('Wrist', wrist);
+      setGripperUI(grip);
+      updateArmSVG(base, shoulder, elbow, wrist);
+    }
+
+    function setServoUI(name, angle) {
+      const safeAngle = clamp(angle, 0, 180);
+      const pct = (safeAngle / 180 * 100).toFixed(1);
+      document.getElementById(`fill${name}`).style.width = `${pct}%`;
+      document.getElementById(`thumb${name}`).style.left = `${pct}%`;
+      document.getElementById(`val${name}`).textContent = `${safeAngle}°`;
+    }
+
+    function setGripperUI(pct) {
+      gripperOpen = clamp(pct, 0, 100);
+      document.getElementById('gripperPct').textContent = `${gripperOpen}%`;
+      const spread = gripperOpen / 100 * 25;
+      document.getElementById('jawLeft').style.transform = `rotate(${-spread}deg)`;
+      document.getElementById('jawRight').style.transform = `rotate(${spread}deg)`;
+    }
+
+    function updateLandmarks(wrist, index, thumb, dist, grip) {
+      document.getElementById('lmWristX').textContent = wrist.x.toFixed(2);
+      document.getElementById('lmWristY').textContent = wrist.y.toFixed(2);
+      document.getElementById('lmIndexX').textContent = index.x.toFixed(2);
+      document.getElementById('lmIndexY').textContent = index.y.toFixed(2);
+      document.getElementById('lmThumbX').textContent = thumb.x.toFixed(2);
+      document.getElementById('lmThumbY').textContent = thumb.y.toFixed(2);
+      document.getElementById('lmDist').textContent = dist.toFixed(3);
+      document.getElementById('lmGrip').textContent = `${grip}%`;
+    }
+
+    function updateArmSVG(base, shoulder, elbow, wrist) {
+      const cx = 80;
+      const cy = 128;
+      const l1 = 40;
+      const l2 = 30;
+      const l3 = 18;
+      const aS = shoulder / 180 * Math.PI - Math.PI / 2;
+      const aE = elbow / 180 * Math.PI - Math.PI / 2;
+      const aW = wrist / 180 * Math.PI - Math.PI / 2;
+      const x1 = cx + Math.cos(aS) * l1;
+      const y1 = cy + Math.sin(aS) * l1;
+      const x2 = x1 + Math.cos(aS + aE - Math.PI / 2) * l2;
+      const y2 = y1 + Math.sin(aS + aE - Math.PI / 2) * l2;
+      const x3 = x2 + Math.cos(aS + aE + aW - Math.PI) * l3;
+      const y3 = y2 + Math.sin(aS + aE + aW - Math.PI) * l3;
+
+      setLine('svgShoulder', 80, 128, x1, y1);
+      setLine('svgElbow', x1, y1, x2, y2);
+      setLine('svgWrist', x2, y2, x3, y3);
+      setCircle('cjShoulder', x1, y1);
+      setCircle('cjElbow', x2, y2);
+      setCircle('cjWrist', x3, y3);
+    }
+
+    function setLine(id, x1, y1, x2, y2) {
+      const line = document.getElementById(id);
+      line.setAttribute('x1', x1);
+      line.setAttribute('y1', y1);
+      line.setAttribute('x2', x2);
+      line.setAttribute('y2', y2);
+    }
+
+    function setCircle(id, cx, cy) {
+      const circle = document.getElementById(id);
+      circle.setAttribute('cx', cx);
+      circle.setAttribute('cy', cy);
+    }
+
+    function setMode(mode) {
+      controlMode = mode;
+      document.getElementById('modePos').classList.toggle('active', mode === 'position');
+      document.getElementById('modeGest').classList.toggle('active', mode === 'gesture');
+      document.getElementById('modeLabel').textContent = `Modo: ${mode === 'position' ? 'Posición' : 'Gestos'}`;
+      addLog(`Modo -> ${mode}`, 'inf');
+      saveHistory('vision_mode', `Modo de visión cambiado a ${mode}`);
+    }
+
+    function showGesture(gesture) {
+      const badge = document.getElementById('gestureBadge');
+      badge.textContent = gesture;
+      badge.classList.add('show');
+      clearTimeout(gestureTimer);
+      gestureTimer = setTimeout(() => badge.classList.remove('show'), 1200);
+    }
+
+    function centerServos() {
+      updateServosUI(90, 90, 90, 90, 50);
+      publishServoPacket(90, 90, 90, 90, 0);
+      saveHistory('vision_robot', 'Servos centrados desde visión');
+    }
+
+    function ema(prev, next) {
+      return Math.round(prev + EMA_ALPHA * (next - prev));
+    }
+
+    function clamp(value, min, max) {
+      return Math.max(min, Math.min(max, Math.round(value)));
+    }
+
+    window.addEventListener('beforeunload', () => {
+      if (cameraRunning) stopCamera();
+      if (mqttClient) mqttClient.end(true);
+    });
+
+    init();
+  </script>
+</body>
+</html>
