@@ -147,6 +147,19 @@ async function createIotStore({ dataDir, filename = 'iot.sqlite' }) {
       status TEXT NOT NULL DEFAULT 'queued',
       created_at TEXT NOT NULL
     );
+
+    CREATE TABLE IF NOT EXISTS audit_logs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      correlation_id TEXT NOT NULL,
+      user_id TEXT NOT NULL,
+      username TEXT NOT NULL,
+      tool TEXT NOT NULL,
+      arguments TEXT NOT NULL,
+      status TEXT NOT NULL,
+      duration_ms INTEGER NOT NULL,
+      timestamp TEXT NOT NULL,
+      result TEXT
+    );
   `);
   persist();
 
@@ -284,6 +297,15 @@ async function createIotStore({ dataDir, filename = 'iot.sqlite' }) {
     return stale.map((row) => row.device_id);
   }
 
+  function addAuditLog(correlationId, userId, username, tool, args, status, durationMs, result = null) {
+    const ts = nowIso();
+    exec(`
+      INSERT INTO audit_logs (correlation_id, user_id, username, tool, arguments, status, duration_ms, timestamp, result)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `, [correlationId, String(userId), username, tool, JSON.stringify(args), status, Number(durationMs), ts, result ? JSON.stringify(result) : null]);
+    return { correlationId, userId, username, tool, arguments: args, status, durationMs, timestamp: ts, result };
+  }
+
   function close() {
     clearTimeout(saveTimer);
     persist();
@@ -302,6 +324,7 @@ async function createIotStore({ dataDir, filename = 'iot.sqlite' }) {
     addEvent,
     addCommand,
     markOfflineStaleDevices,
+    addAuditLog,
     close
   };
 }

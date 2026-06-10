@@ -28,10 +28,45 @@ let aiService = null;
 const eventClients = new Set();
 
 const SCOPES = {
-  super_admin: ['devices:read', 'telemetry:read', 'automations:read', 'users:read', 'system:read'],
-  operator: ['devices:read', 'telemetry:read', 'automations:read', 'system:read'],
+  super_admin: ['devices:read', 'telemetry:read', 'automations:read', 'users:read', 'system:read', 'devices:control', 'automations:execute', 'automations:stop'],
+  operator: ['devices:read', 'telemetry:read', 'automations:read', 'system:read', 'devices:control', 'automations:execute', 'automations:stop'],
   guest: ['devices:read', 'telemetry:read']
 };
+
+const activeAutomations = new Map();
+
+async function runAutomationInBackend(automation) {
+  const id = automation.id;
+  activeAutomations.set(id, true);
+  console.log(`[Automation] Iniciando ${automation.name} en el servidor...`);
+  
+  for (const step of automation.steps) {
+    if (!activeAutomations.has(id)) {
+      console.log(`[Automation] Detenida: ${automation.name}`);
+      break;
+    }
+    
+    const delay = Number(step.delay) || 250;
+    await new Promise(resolve => setTimeout(resolve, delay));
+    
+    if (!activeAutomations.has(id)) {
+      break;
+    }
+
+    if (step.topic && iotMqttClient?.connected) {
+      iotMqttClient.publish(step.topic, JSON.stringify(step.payload ?? ''));
+    }
+    if (step.servo && Number.isFinite(Number(step.angle)) && iotMqttClient?.connected) {
+      iotMqttClient.publish(`brazo/servo/${step.servo}`, String(step.angle));
+    }
+  }
+  activeAutomations.delete(id);
+  console.log(`[Automation] Finalizada: ${automation.name}`);
+}
+
+function stopAutomationInBackend(id) {
+  activeAutomations.delete(id);
+}
 
 const rateLimits = new Map();
 function checkRateLimit(req, limit = 15, windowMs = 60000) {
@@ -478,6 +513,9 @@ async function handleApi(req, res, url) {
       return send(res, 429, { error: 'Demasiadas solicitudes al chat de IA. Límite de 15 peticiones por minuto.' });
     }
 
+    const correlationId = crypto.randomUUID();
+    res.setHeader('X-Correlation-ID', correlationId);
+
     const body = await parseBody(req);
     if (!body.message) return send(res, 400, { error: 'El mensaje es requerido.' });
 
@@ -488,7 +526,8 @@ async function handleApi(req, res, url) {
       res.writeHead(200, {
         'Content-Type': 'text/event-stream; charset=utf-8',
         'Cache-Control': 'no-cache, no-transform',
-        'Connection': 'keep-alive'
+        'Connection': 'keep-alive',
+        'X-Correlation-ID': correlationId
       });
 
       res.write(`event: ready\ndata: ${JSON.stringify({ ok: true })}\n\n`);
@@ -502,12 +541,22 @@ async function handleApi(req, res, url) {
           stream: true,
           onChunk: (chunk) => {
             res.write(`event: chunk\ndata: ${JSON.stringify({ text: chunk })}\n\n`);
-          }
+          },
+          correlationId
         });
+
+        if (response.requiresConfirmation) {
+          res.write(`event: confirmation\ndata: ${JSON.stringify({
+            requiresConfirmation: true,
+            confirmationToken: response.confirmationToken,
+            action: response.action
+          })}\n\n`);
+        }
+
         res.write(`event: done\ndata: ${JSON.stringify({ history: response.history })}\n\n`);
         res.end();
 
-        addHistory(db, allowed.user, 'ai_chat', `Chat IA (SSE stream): "${body.message.slice(0, 40)}..."`);
+        addHistory(db, allowed.user, 'ai_chat', `Chat IA (SSE stream): "${body.message.slice(0, 40)}..."`, { correlationId });
         writeDb(db);
       } catch (err) {
         res.write(`event: error\ndata: ${JSON.stringify({ error: err.message || 'Error en streaming' })}\n\n`);
@@ -521,17 +570,97 @@ async function handleApi(req, res, url) {
           sessionId,
           message: body.message,
           model: body.model,
-          stream: false
+          stream: false,
+          correlationId
         });
 
-        addHistory(db, allowed.user, 'ai_chat', `Chat IA: "${body.message.slice(0, 40)}..."`);
+        addHistory(db, allowed.user, 'ai_chat', `Chat IA: "${body.message.slice(0, 40)}..."`, { correlationId });
         writeDb(db);
 
-        return send(res, 200, response);
+        return send(res, 200, { ...response, correlationId });
       } catch (err) {
         return send(res, err.status || 500, { error: err.message || 'Error en el servicio de IA' });
       }
     }
+  }
+
+  if (route === 'POST /api/ai/confirm') {
+    const allowed = requireAuth(req, db, 'ai_chat');
+    if (allowed.error) return send(res, allowed.status, { error: allowed.error });
+
+    const body = await parseBody(req);
+    if (!body.token) return send(res, 400, { error: 'Token de confirmación requerido.' });
+
+    const pending = aiService.pendingConfirmations.get(body.token);
+    if (!pending) {
+      return send(res, 404, { error: 'Acción de confirmación expirada o inválida.' });
+    }
+
+    if (pending.userId !== allowed.user.id) {
+      return send(res, 403, { error: 'No estás autorizado para confirmar esta acción.' });
+    }
+
+    const tool = aiService.toolRegistry.get(pending.toolName);
+    if (tool && tool.scope) {
+      const userPermissions = allowed.permissions || [];
+      if (!userPermissions.includes(tool.scope) && allowed.user.role !== 'super_admin') {
+        iotStore.addAuditLog(pending.correlationId, allowed.user.id, allowed.user.username, pending.toolName, pending.args, 'denied', 0, { error: 'Falta de scopes' });
+        return send(res, 403, { error: `No tienes el scope '${tool.scope}' requerido para ejecutar esta acción.` });
+      }
+    }
+
+    const startTime = Date.now();
+    let result;
+    let status = 'success';
+
+    try {
+      if (pending.toolName === 'sendCommand') {
+        const { deviceId, command } = pending.args;
+        if (iotMqttClient?.connected) {
+          iotMqttClient.publish(`devices/${deviceId}/commands`, JSON.stringify({ command, at: new Date().toISOString() }));
+        }
+        iotStore.addCommand(deviceId, command, {});
+        result = { message: `Comando '${command}' enviado exitosamente a '${deviceId}' vía MQTT.` };
+      }
+      else if (pending.toolName === 'executeAutomation') {
+        const { id } = pending.args;
+        const automation = db.automations.find(a => a.id === id);
+        if (!automation) throw new Error('Automatización no encontrada.');
+        runAutomationInBackend(automation);
+        result = { message: `Automatización '${automation.name}' iniciada en el servidor.` };
+      }
+      else if (pending.toolName === 'stopAutomation') {
+        const { id } = pending.args;
+        stopAutomationInBackend(id);
+        result = { message: `Automatización detenida exitosamente en el servidor.` };
+      }
+    } catch (err) {
+      status = 'error';
+      result = { error: err.message || 'Error durante la ejecución.' };
+    }
+
+    const durationMs = Date.now() - startTime;
+    iotStore.addAuditLog(pending.correlationId, allowed.user.id, allowed.user.username, pending.toolName, pending.args, status, durationMs, result);
+    aiService.pendingConfirmations.delete(body.token);
+
+    // Guardar logs del resultado en la historia del chat para mantener coherencia
+    aiService.addMessage(allowed.user.id, 'default', 'tool', JSON.stringify(result), {
+      tool_name: pending.toolName,
+      username: allowed.user.username,
+      correlationId: pending.correlationId
+    }, aiService.model);
+
+    const finalReply = status === 'success' ? `Confirmado. He ejecutado la herramienta '${pending.toolName}' con éxito.` : `Error al ejecutar la acción: ${result.error}`;
+    aiService.addMessage(allowed.user.id, 'default', 'assistant', finalReply, {
+      username: allowed.user.username,
+      correlationId: pending.correlationId
+    }, aiService.model);
+
+    if (status === 'error') {
+      return send(res, 500, { error: result.error });
+    }
+
+    return send(res, 200, { success: true, message: finalReply, result });
   }
 
   if (route === 'GET /api/users') {
@@ -759,6 +888,56 @@ ensureDb();
       mqttConnected: iotMqttClient?.connected || false,
       timestamp: new Date().toISOString()
     })
+  });
+
+  // Registrar herramientas de escritura críticas
+  aiService.toolRegistry.register({
+    name: 'sendCommand',
+    description: 'Envía un comando de control IoT directo a un dispositivo (ej: on, off, status, toggle). Requiere confirmación.',
+    scope: 'devices:control',
+    critical: true,
+    schema: {
+      type: 'object',
+      properties: {
+        deviceId: { type: 'string', minLength: 3, maxLength: 64 },
+        command: { type: 'string', minLength: 1, maxLength: 120 }
+      },
+      required: ['deviceId', 'command'],
+      additionalProperties: false
+    },
+    handler: (user, { deviceId, command }) => ({ message: 'Comando preparado para confirmación', deviceId, command })
+  });
+
+  aiService.toolRegistry.register({
+    name: 'executeAutomation',
+    description: 'Dispara y ejecuta una rutina o automatización preestablecida por su ID único. Requiere confirmación.',
+    scope: 'automations:execute',
+    critical: true,
+    schema: {
+      type: 'object',
+      properties: {
+        id: { type: 'string', minLength: 3, maxLength: 64 }
+      },
+      required: ['id'],
+      additionalProperties: false
+    },
+    handler: (user, { id }) => ({ message: 'Ejecución preparada para confirmación', id })
+  });
+
+  aiService.toolRegistry.register({
+    name: 'stopAutomation',
+    description: 'Detiene de forma inmediata la ejecución de una automatización o rutina activa. Requiere confirmación.',
+    scope: 'automations:stop',
+    critical: true,
+    schema: {
+      type: 'object',
+      properties: {
+        id: { type: 'string', minLength: 3, maxLength: 64 }
+      },
+      required: ['id'],
+      additionalProperties: false
+    },
+    handler: (user, { id }) => ({ message: 'Parada preparada para confirmación', id })
   });
 
   startIotMqttBridge();

@@ -823,3 +823,118 @@ input[type=range]::-webkit-slider-thumb {
     height: 380px;
   }
 }
+
+/* AI Confirmation Card Style */
+.ai-confirm-card {
+  margin-top: 10px;
+  padding: 14px;
+  background: #231942;
+  border: 1px solid #5e548e;
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  animation: fadeInBubble 0.25s ease-out;
+  max-width: 100%;
+}
+
+.ai-confirm-card.confirmed {
+  border-color: var(--accent-2);
+  background: #0d2818;
+}
+
+.ai-confirm-card.error {
+  border-color: var(--err);
+  background: #280d15;
+}
+
+.ai-confirm-card.cancelled {
+  border-color: var(--muted);
+  background: #1a1727;
+  opacity: 0.8;
+}
+
+.confirm-card-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--warn);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.confirmed .confirm-card-title,
+.confirmed .confirm-card-success {
+  color: var(--accent-2);
+}
+
+.error .confirm-card-title,
+.error .confirm-card-error {
+  color: var(--err);
+}
+
+.confirm-card-details {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+}
+
+.confirm-card-details pre {
+  margin-top: 4px;
+  padding: 6px 10px;
+  background: rgba(14, 11, 26, 0.4);
+  border: 0.5px solid var(--line);
+  border-radius: 6px;
+  font-family: Consolas, monospace;
+  font-size: 11px;
+  color: var(--text);
+  overflow-x: auto;
+}
+
+.confirm-card-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.confirm-card-actions button {
+  padding: 6px 12px;
+  font-size: 12px;
+  border-radius: 6px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 30px;
+  border: 0.5px solid var(--line);
+}
+
+.confirm-btn-yes {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent) !important;
+  font-weight: 700;
+}
+
+.confirm-btn-yes:hover {
+  background: #927bff;
+}
+
+.confirm-btn-no {
+  background: transparent;
+  color: var(--muted);
+}
+
+.confirm-btn-no:hover {
+  color: var(--text);
+  border-color: var(--line-strong) !important;
+}
+
+.confirm-card-success, .confirm-card-error, .confirm-card-cancelled {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  font-weight: 700;
+}

@@ -653,6 +653,10 @@ async function sendAiMessage(messageText) {
               assistantBubble.textContent = accumulatedText;
               messagesContainer.scrollTop = messagesContainer.scrollHeight;
             }
+            if (data.requiresConfirmation) {
+              loadingEl.remove();
+              createConfirmationCard(assistantBubble, data.confirmationToken, data.action);
+            }
             if (data.error) {
               assistantBubble.textContent = `Error: ${data.error}`;
               assistantBubble.classList.add('bubble-err');
@@ -687,6 +691,71 @@ function appendAiChatMessage(role, content) {
   container.appendChild(bubble);
   container.scrollTop = container.scrollHeight;
   return body;
+}
+
+function createConfirmationCard(container, token, action) {
+  const card = document.createElement('div');
+  card.className = 'ai-confirm-card';
+  card.innerHTML = `
+    <div class="confirm-card-title"><i class="ti ti-alert-triangle"></i> Confirmación Requerida</div>
+    <div class="confirm-card-details">
+      <span><strong>Acción:</strong> ${escapeHtml(action.tool)}</span>
+      <span><strong>Parámetros:</strong></span>
+      <pre>${escapeHtml(JSON.stringify(action.arguments, null, 2))}</pre>
+    </div>
+    <div class="confirm-card-actions">
+      <button class="confirm-btn-yes"><i class="ti ti-check"></i> Confirmar y Ejecutar</button>
+      <button class="confirm-btn-no"><i class="ti ti-x"></i> Cancelar</button>
+    </div>
+  `;
+
+  container.appendChild(card);
+  
+  const yesBtn = card.querySelector('.confirm-btn-yes');
+  const noBtn = card.querySelector('.confirm-btn-no');
+
+  yesBtn.addEventListener('click', async () => {
+    yesBtn.disabled = true;
+    noBtn.disabled = true;
+    yesBtn.textContent = 'Ejecutando...';
+
+    try {
+      const confirmRes = await api('/ai/confirm', {
+        method: 'POST',
+        body: JSON.stringify({ token })
+      });
+      
+      card.className = 'ai-confirm-card confirmed';
+      card.innerHTML = `
+        <div class="confirm-card-success">
+          <i class="ti ti-circle-check"></i>
+          <span>Acción ejecutada con éxito.</span>
+        </div>
+      `;
+      
+      appendAiChatMessage('assistant', confirmRes.message);
+    } catch (err) {
+      card.className = 'ai-confirm-card error';
+      card.innerHTML = `
+        <div class="confirm-card-error">
+          <i class="ti ti-circle-x"></i>
+          <span>Error de ejecución: ${escapeHtml(err.message)}</span>
+        </div>
+      `;
+    }
+  });
+
+  noBtn.addEventListener('click', () => {
+    yesBtn.disabled = true;
+    noBtn.disabled = true;
+    card.className = 'ai-confirm-card cancelled';
+    card.innerHTML = `
+      <div class="confirm-card-cancelled">
+        <i class="ti ti-circle-minus"></i>
+        <span>Acción cancelada por el usuario.</span>
+      </div>
+    `;
+  });
 }
 
 function autoConnectMqtt() {

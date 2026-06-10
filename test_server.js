@@ -324,6 +324,53 @@ test('TADASHY Integration Tests', async (t) => {
     assert.ok(hitRateLimit);
   });
 
+  await t.test('AI Capabilities - Verification of critical writing tools', async () => {
+    const res = await fetch(`${serverUrl}/api/ai/capabilities`, {
+      headers: { 'Authorization': `Bearer ${adminToken}` }
+    });
+    assert.strictEqual(res.status, 200);
+    const body = await res.json();
+    assert.ok(body.tools.some(t => t.name === 'sendCommand' && t.critical === true));
+    assert.ok(body.tools.some(t => t.name === 'executeAutomation' && t.critical === true));
+  });
+
+  await t.test('AI Confirm Endpoint - Validation (fail without auth)', async () => {
+    const res = await fetch(`${serverUrl}/api/ai/confirm`, {
+      method: 'POST',
+      body: JSON.stringify({ token: 'some-token-uuid' }),
+      headers: { 'Content-Type': 'application/json' }
+    });
+    assert.strictEqual(res.status, 401);
+  });
+
+  await t.test('AI Confirm Endpoint - Validation (fail without token)', async () => {
+    const res = await fetch(`${serverUrl}/api/ai/confirm`, {
+      method: 'POST',
+      body: JSON.stringify({}),
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${adminToken}`
+      }
+    });
+    assert.strictEqual(res.status, 400);
+    const body = await res.json();
+    assert.match(body.error, /Token/);
+  });
+
+  await t.test('AI Confirm Endpoint - Validation (fail invalid token)', async () => {
+    const res = await fetch(`${serverUrl}/api/ai/confirm`, {
+      method: 'POST',
+      body: JSON.stringify({ token: '00000000-0000-0000-0000-000000000000' }),
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${adminToken}`
+      }
+    });
+    assert.strictEqual(res.status, 404);
+    const body = await res.json();
+    assert.match(body.error, /expirada/);
+  });
+
   await t.test('Logout - POST /api/auth/logout', async () => {
     const res = await fetch(`${serverUrl}/api/auth/logout`, {
       method: 'POST',
