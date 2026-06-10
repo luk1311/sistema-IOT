@@ -256,6 +256,12 @@ async function createIotStore({ dataDir, filename = 'iot.sqlite' }) {
       updated_at TEXT NOT NULL
     );
   `);
+  
+  db.run(`
+    INSERT OR IGNORE INTO devices (device_id, name, type, status, first_seen, last_seen, updated_at)
+    VALUES ('brazo', 'Brazo Robótico', 'robot', 'online', ?, ?, ?)
+  `, [nowIso(), nowIso(), nowIso()]);
+
   persist();
 
   function getDevice(deviceId) {
