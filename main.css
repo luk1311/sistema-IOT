@@ -596,6 +596,41 @@ input[type=range]::-webkit-slider-thumb {
   min-height: 480px;
 }
 
+.voice-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 0 10px;
+  min-height: 44px;
+}
+
+.icon-action {
+  width: 36px;
+  height: 36px;
+  display: inline-grid;
+  place-items: center;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel-2);
+  color: var(--text);
+  cursor: pointer;
+}
+
+.icon-action.active {
+  border-color: var(--accent);
+  color: var(--accent);
+  box-shadow: 0 0 0 2px rgba(83, 109, 254, 0.18);
+}
+
+.voice-status {
+  min-width: 0;
+  color: var(--muted);
+  font-size: 0.84rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .chat-messages {
   flex: 1;
   overflow-y: auto;

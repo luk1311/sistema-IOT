@@ -23,6 +23,10 @@ let devices = [];
 let currentMode = 'manual';
 let deviceTimer = null;
 let iotEvents = null;
+let voiceRecognition = null;
+let voiceEnabled = false;
+let handsFreeMode = JSON.parse(localStorage.getItem('tadashy_handsfree') || 'false');
+let voiceSessionId = localStorage.getItem('tadashy_voice_session') || `voice-${Date.now()}`;
 
 const viewCopy = {
   dashboard: ['Dashboard IoT', 'Estado en tiempo real del sistema y del broker MQTT.'],
@@ -602,7 +606,112 @@ async function loadAiChat() {
   }
 }
 
-async function sendAiMessage(messageText) {
+function updateVoiceStatus(text, active = voiceEnabled) {
+  const status = $('voice-status');
+  if (status) status.textContent = text;
+  $('voice-toggle-btn')?.classList.toggle('active', active);
+  $('handsfree-toggle-btn')?.classList.toggle('active', handsFreeMode);
+}
+
+function speakAi(text) {
+  if (!('speechSynthesis' in window) || !text || (!voiceEnabled && !handsFreeMode)) return;
+  window.speechSynthesis.cancel();
+  const utterance = new SpeechSynthesisUtterance(text.replace(/\s+/g, ' ').slice(0, 800));
+  utterance.lang = 'es-CO';
+  utterance.rate = 0.96;
+  utterance.pitch = 1;
+  window.speechSynthesis.speak(utterance);
+}
+
+function stopSpeaking() {
+  if ('speechSynthesis' in window) window.speechSynthesis.cancel();
+  updateVoiceStatus(voiceEnabled ? 'Escuchando · Hey TADASHY' : 'Voz lista · Hey TADASHY');
+}
+
+function normalizeVoiceText(text) {
+  return String(text || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .trim();
+}
+
+async function handleVoiceTranscript(transcript) {
+  const raw = String(transcript || '').trim();
+  const normalized = normalizeVoiceText(raw);
+  if (!raw) return;
+  if (normalized.includes('stop talking') || normalized.includes('deja de hablar') || normalized.includes('silencio tadashy')) {
+    stopSpeaking();
+    return;
+  }
+  const wakeIndex = normalized.indexOf('hey tadashy');
+  if (!handsFreeMode && wakeIndex === -1) {
+    updateVoiceStatus('Esperando wake word · Hey TADASHY');
+    return;
+  }
+  const command = wakeIndex >= 0 ? raw.slice(wakeIndex + 'hey tadashy'.length).trim() : raw;
+  if (!command) return;
+  updateVoiceStatus('Procesando voz...');
+  const reply = await sendAiMessage(command, { channel: 'voice', sessionId: voiceSessionId, speak: true });
+  if (reply) speakAi(reply);
+  updateVoiceStatus(voiceEnabled ? 'Escuchando · Hey TADASHY' : 'Voz lista · Hey TADASHY');
+}
+
+function initVoiceAssistant() {
+  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SpeechRecognition) {
+    updateVoiceStatus('STT no disponible en este navegador', false);
+    return;
+  }
+  if (voiceRecognition) return;
+  voiceRecognition = new SpeechRecognition();
+  voiceRecognition.lang = 'es-CO';
+  voiceRecognition.continuous = true;
+  voiceRecognition.interimResults = false;
+  voiceRecognition.maxAlternatives = 1;
+  voiceRecognition.onresult = (event) => {
+    const last = event.results[event.results.length - 1];
+    if (last?.isFinal) handleVoiceTranscript(last[0].transcript).catch((err) => updateVoiceStatus(`Voz: ${err.message}`, false));
+  };
+  voiceRecognition.onend = () => {
+    if (voiceEnabled) {
+      try { voiceRecognition.start(); } catch (err) {}
+    }
+  };
+  voiceRecognition.onerror = (event) => updateVoiceStatus(`Voz: ${event.error || 'error'}`, false);
+}
+
+function toggleVoice() {
+  initVoiceAssistant();
+  if (!voiceRecognition) return;
+  voiceEnabled = !voiceEnabled;
+  if (voiceEnabled) {
+    try { voiceRecognition.start(); } catch (err) {}
+    updateVoiceStatus('Escuchando · Hey TADASHY', true);
+  } else {
+    voiceRecognition.stop();
+    updateVoiceStatus('Voz lista · Hey TADASHY', false);
+  }
+}
+
+async function toggleHandsFree() {
+  handsFreeMode = !handsFreeMode;
+  localStorage.setItem('tadashy_handsfree', JSON.stringify(handsFreeMode));
+  updateVoiceStatus(handsFreeMode ? 'Manos libres activo' : 'Manos libres apagado');
+  try {
+    await api('/ai/memory', {
+      method: 'PATCH',
+      body: JSON.stringify({
+        sessionId: voiceSessionId,
+        memory: { preferences: { handsFree: handsFreeMode } }
+      })
+    });
+  } catch (err) {
+    addLog(`Preferencia de voz no guardada: ${err.message}`, 'err');
+  }
+}
+
+async function sendAiMessage(messageText, options = {}) {
   const messagesContainer = $('ai-chat-messages');
   appendAiChatMessage('user', messageText);
   
@@ -620,7 +729,12 @@ async function sendAiMessage(messageText) {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${auth.token}`
       },
-      body: JSON.stringify({ message: messageText, stream: true, sessionId: 'default' })
+      body: JSON.stringify({
+        message: messageText,
+        stream: true,
+        sessionId: options.sessionId || 'default',
+        channel: options.channel || 'text'
+      })
     });
 
     if (!res.ok) {
@@ -634,6 +748,7 @@ async function sendAiMessage(messageText) {
     const decoder = new TextDecoder('utf-8');
     let buffer = '';
     let accumulatedText = '';
+    let confirmationText = '';
 
     while (true) {
       const { done, value } = await reader.read();
@@ -656,6 +771,9 @@ async function sendAiMessage(messageText) {
             if (data.requiresConfirmation) {
               loadingEl.remove();
               createConfirmationCard(assistantBubble, data.confirmationToken, data.action);
+              confirmationText = data.reason === 'critical_device_action'
+                ? 'La accion requiere confirmacion humana antes de ejecutarse.'
+                : 'Se requiere confirmacion.';
             }
             if (data.error) {
               assistantBubble.textContent = `Error: ${data.error}`;
@@ -666,10 +784,15 @@ async function sendAiMessage(messageText) {
         }
       }
     }
+    const finalText = accumulatedText || confirmationText;
+    if (options.speak && finalText) speakAi(finalText);
+    return finalText;
   } catch (err) {
     loadingEl.remove();
     assistantBubble.textContent = `Error: ${err.message}`;
     assistantBubble.classList.add('bubble-err');
+    if (options.speak) speakAi(`Error: ${err.message}`);
+    return '';
   }
 }
 
@@ -694,6 +817,9 @@ function appendAiChatMessage(role, content) {
 }
 
 function createConfirmationCard(container, token, action) {
+  const actionDetails = action.calls
+    ? action.calls.map((item) => `${item.tool}: ${JSON.stringify(item.arguments)}`).join('\n')
+    : JSON.stringify(action.arguments, null, 2);
   const card = document.createElement('div');
   card.className = 'ai-confirm-card';
   card.innerHTML = `
@@ -701,7 +827,7 @@ function createConfirmationCard(container, token, action) {
     <div class="confirm-card-details">
       <span><strong>Acción:</strong> ${escapeHtml(action.tool)}</span>
       <span><strong>Parámetros:</strong></span>
-      <pre>${escapeHtml(JSON.stringify(action.arguments, null, 2))}</pre>
+      <pre>${escapeHtml(actionDetails)}</pre>
     </div>
     <div class="confirm-card-actions">
       <button class="confirm-btn-yes"><i class="ti ti-check"></i> Confirmar y Ejecutar</button>
@@ -734,6 +860,7 @@ function createConfirmationCard(container, token, action) {
       `;
       
       appendAiChatMessage('assistant', confirmRes.message);
+      speakAi(confirmRes.message);
     } catch (err) {
       card.className = 'ai-confirm-card error';
       card.innerHTML = `
@@ -789,6 +916,9 @@ function bindEvents() {
   $('user-form').addEventListener('submit', createUser);
   $('refresh-history').addEventListener('click', loadHistory);
   $('discover-devices-btn').addEventListener('click', discoverDevices);
+  $('voice-toggle-btn')?.addEventListener('click', toggleVoice);
+  $('handsfree-toggle-btn')?.addEventListener('click', toggleHandsFree);
+  $('stop-speaking-btn')?.addEventListener('click', stopSpeaking);
   $('ai-chat-form').addEventListener('submit', (event) => {
     event.preventDefault();
     const input = $('ai-chat-input');
@@ -828,4 +958,5 @@ function bindEvents() {
 
 bindEvents();
 hydrateMqttForm();
+updateVoiceStatus(handsFreeMode ? 'Manos libres activo' : 'Voz lista · Hey TADASHY');
 renderShell();

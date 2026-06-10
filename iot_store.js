@@ -4,6 +4,8 @@ const initSqlJs = require('sql.js');
 
 const DEVICE_ID_RE = /^[a-zA-Z0-9_-]{3,64}$/;
 const MAX_TELEMETRY_ROWS = 5000;
+const MAX_TELEMETRY_DEPTH = 4;
+const MAX_TELEMETRY_KEYS = 80;
 
 function nowIso() {
   return new Date().toISOString();
@@ -52,6 +54,63 @@ function rowToTelemetry(row) {
     payload: parseJson(row.payload, row.payload),
     receivedAt: row.received_at
   };
+}
+
+function rowToNamedEntity(row) {
+  if (!row) return null;
+  return {
+    name: row.name,
+    aliases: parseJson(row.aliases, []),
+    deviceIds: parseJson(row.device_ids, []),
+    location: row.location || null,
+    metadata: parseJson(row.metadata, {}),
+    updatedAt: row.updated_at
+  };
+}
+
+function rowToMemoryProfile(row) {
+  if (!row) return {
+    preferences: {},
+    frequentDevices: [],
+    usedLocations: [],
+    createdAutomations: [],
+    historySummary: ''
+  };
+  return {
+    userId: row.user_id,
+    sessionId: row.session_id,
+    preferences: parseJson(row.preferences, {}),
+    frequentDevices: parseJson(row.frequent_devices, []),
+    usedLocations: parseJson(row.used_locations, []),
+    createdAutomations: parseJson(row.created_automations, []),
+    historySummary: row.history_summary || '',
+    updatedAt: row.updated_at
+  };
+}
+
+function sanitizeTelemetry(value, depth = 0, state = { keys: 0 }) {
+  if (depth > MAX_TELEMETRY_DEPTH) return '[truncated]';
+  if (value === null || value === undefined) return value;
+  if (typeof value === 'string') {
+    return value
+      .replace(/ignore\s+(?:previous|system|instructions|rules)/ig, '[filtered]')
+      .replace(/ignora\s+(?:instrucciones|reglas)/ig, '[filtered]')
+      .slice(0, 1000);
+  }
+  if (typeof value === 'number' || typeof value === 'boolean') return value;
+  if (Array.isArray(value)) return value.slice(0, 50).map((item) => sanitizeTelemetry(item, depth + 1, state));
+  if (typeof value === 'object') {
+    const out = {};
+    for (const [key, item] of Object.entries(value)) {
+      if (state.keys >= MAX_TELEMETRY_KEYS) break;
+      const safeKey = String(key).replace(/[^\w.-]/g, '_').slice(0, 64);
+      if (/prompt|instruction|system|password|secret|token/i.test(safeKey)) continue;
+      state.keys++;
+      out[safeKey] = sanitizeTelemetry(item, depth + 1, state);
+    }
+    return out;
+  }
+  return String(value).slice(0, 1000);
 }
 
 function getRows(db, sql, params = []) {
@@ -160,6 +219,42 @@ async function createIotStore({ dataDir, filename = 'iot.sqlite' }) {
       timestamp TEXT NOT NULL,
       result TEXT
     );
+
+    CREATE TABLE IF NOT EXISTS memory_profiles (
+      user_id TEXT NOT NULL,
+      session_id TEXT NOT NULL DEFAULT 'default',
+      preferences TEXT NOT NULL DEFAULT '{}',
+      frequent_devices TEXT NOT NULL DEFAULT '[]',
+      used_locations TEXT NOT NULL DEFAULT '[]',
+      created_automations TEXT NOT NULL DEFAULT '[]',
+      history_summary TEXT NOT NULL DEFAULT '',
+      updated_at TEXT NOT NULL,
+      PRIMARY KEY(user_id, session_id)
+    );
+
+    CREATE TABLE IF NOT EXISTS device_groups (
+      name TEXT PRIMARY KEY,
+      aliases TEXT NOT NULL DEFAULT '[]',
+      location TEXT,
+      device_ids TEXT NOT NULL DEFAULT '[]',
+      metadata TEXT NOT NULL DEFAULT '{}',
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS locations (
+      name TEXT PRIMARY KEY,
+      aliases TEXT NOT NULL DEFAULT '[]',
+      device_ids TEXT NOT NULL DEFAULT '[]',
+      metadata TEXT NOT NULL DEFAULT '{}',
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS context_cache (
+      cache_key TEXT PRIMARY KEY,
+      value TEXT NOT NULL,
+      expires_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
   `);
   persist();
 
@@ -240,7 +335,7 @@ async function createIotStore({ dataDir, filename = 'iot.sqlite' }) {
     const id = normalizeDeviceId(deviceId);
     if (!id) return null;
     const ts = nowIso();
-    const parsed = parseJson(payload, payload);
+    const parsed = sanitizeTelemetry(parseJson(payload, payload));
     const jsonPayload = JSON.stringify(parsed);
     registerDevice(id, { status: 'online', lastTelemetry: parsed, lastSeen: ts });
     exec('INSERT INTO telemetry (device_id, topic, payload, received_at) VALUES (?, ?, ?, ?)', [
@@ -306,6 +401,125 @@ async function createIotStore({ dataDir, filename = 'iot.sqlite' }) {
     return { correlationId, userId, username, tool, arguments: args, status, durationMs, timestamp: ts, result };
   }
 
+  function getMemoryProfile(userId, sessionId = 'default') {
+    return rowToMemoryProfile(getRow(
+      db,
+      'SELECT * FROM memory_profiles WHERE user_id = ? AND session_id = ?',
+      [String(userId), String(sessionId || 'default')]
+    ));
+  }
+
+  function upsertMemoryProfile(userId, sessionId = 'default', patch = {}) {
+    const current = getMemoryProfile(userId, sessionId);
+    const ts = nowIso();
+    const next = {
+      preferences: { ...(current.preferences || {}), ...(patch.preferences || {}) },
+      frequentDevices: patch.frequentDevices || current.frequentDevices || [],
+      usedLocations: patch.usedLocations || current.usedLocations || [],
+      createdAutomations: patch.createdAutomations || current.createdAutomations || [],
+      historySummary: String(patch.historySummary ?? current.historySummary ?? '').slice(0, 2000)
+    };
+    exec(`
+      INSERT INTO memory_profiles (
+        user_id, session_id, preferences, frequent_devices, used_locations,
+        created_automations, history_summary, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(user_id, session_id) DO UPDATE SET
+        preferences = excluded.preferences,
+        frequent_devices = excluded.frequent_devices,
+        used_locations = excluded.used_locations,
+        created_automations = excluded.created_automations,
+        history_summary = excluded.history_summary,
+        updated_at = excluded.updated_at
+    `, [
+      String(userId),
+      String(sessionId || 'default'),
+      JSON.stringify(next.preferences),
+      JSON.stringify(next.frequentDevices),
+      JSON.stringify(next.usedLocations),
+      JSON.stringify(next.createdAutomations),
+      next.historySummary,
+      ts
+    ]);
+    return getMemoryProfile(userId, sessionId);
+  }
+
+  function listGroups() {
+    return getRows(db, 'SELECT * FROM device_groups ORDER BY name ASC').map(rowToNamedEntity);
+  }
+
+  function upsertGroup(name, patch = {}) {
+    const safeName = String(name || '').trim().toLowerCase().slice(0, 80);
+    if (!safeName) return null;
+    const ts = nowIso();
+    exec(`
+      INSERT INTO device_groups (name, aliases, location, device_ids, metadata, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?)
+      ON CONFLICT(name) DO UPDATE SET
+        aliases = excluded.aliases,
+        location = excluded.location,
+        device_ids = excluded.device_ids,
+        metadata = excluded.metadata,
+        updated_at = excluded.updated_at
+    `, [
+      safeName,
+      JSON.stringify(patch.aliases || []),
+      patch.location ? String(patch.location).slice(0, 80) : null,
+      JSON.stringify((patch.deviceIds || []).map(normalizeDeviceId).filter(Boolean)),
+      JSON.stringify(patch.metadata || {}),
+      ts
+    ]);
+    return rowToNamedEntity(getRow(db, 'SELECT * FROM device_groups WHERE name = ?', [safeName]));
+  }
+
+  function listLocations() {
+    return getRows(db, 'SELECT * FROM locations ORDER BY name ASC').map(rowToNamedEntity);
+  }
+
+  function upsertLocation(name, patch = {}) {
+    const safeName = String(name || '').trim().toLowerCase().slice(0, 80);
+    if (!safeName) return null;
+    const ts = nowIso();
+    exec(`
+      INSERT INTO locations (name, aliases, device_ids, metadata, updated_at)
+      VALUES (?, ?, ?, ?, ?)
+      ON CONFLICT(name) DO UPDATE SET
+        aliases = excluded.aliases,
+        device_ids = excluded.device_ids,
+        metadata = excluded.metadata,
+        updated_at = excluded.updated_at
+    `, [
+      safeName,
+      JSON.stringify(patch.aliases || []),
+      JSON.stringify((patch.deviceIds || []).map(normalizeDeviceId).filter(Boolean)),
+      JSON.stringify(patch.metadata || {}),
+      ts
+    ]);
+    return rowToNamedEntity(getRow(db, 'SELECT * FROM locations WHERE name = ?', [safeName]));
+  }
+
+  function setContextCache(key, value, ttlMs = 30000) {
+    const safeKey = String(key || '').slice(0, 160);
+    if (!safeKey) return null;
+    const ts = nowIso();
+    const expiresAt = new Date(Date.now() + Math.max(1000, Number(ttlMs) || 30000)).toISOString();
+    exec(`
+      INSERT INTO context_cache (cache_key, value, expires_at, updated_at)
+      VALUES (?, ?, ?, ?)
+      ON CONFLICT(cache_key) DO UPDATE SET
+        value = excluded.value,
+        expires_at = excluded.expires_at,
+        updated_at = excluded.updated_at
+    `, [safeKey, JSON.stringify(value), expiresAt, ts]);
+    return { key: safeKey, value, expiresAt, updatedAt: ts };
+  }
+
+  function getContextCache(key) {
+    const row = getRow(db, 'SELECT * FROM context_cache WHERE cache_key = ?', [String(key || '').slice(0, 160)]);
+    if (!row || row.expires_at < nowIso()) return null;
+    return parseJson(row.value, null);
+  }
+
   function close() {
     clearTimeout(saveTimer);
     persist();
@@ -325,6 +539,14 @@ async function createIotStore({ dataDir, filename = 'iot.sqlite' }) {
     addCommand,
     markOfflineStaleDevices,
     addAuditLog,
+    getMemoryProfile,
+    upsertMemoryProfile,
+    listGroups,
+    upsertGroup,
+    listLocations,
+    upsertLocation,
+    getContextCache,
+    setContextCache,
     close
   };
 }
@@ -332,5 +554,6 @@ async function createIotStore({ dataDir, filename = 'iot.sqlite' }) {
 module.exports = {
   createIotStore,
   normalizeDeviceId,
-  parseJson
+  parseJson,
+  sanitizeTelemetry
 };

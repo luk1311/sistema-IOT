@@ -104,15 +104,17 @@ class ToolRegistry {
     if (!tool) {
       throw new Error(`Herramienta no registrada: ${name}`);
     }
+    const normalizedArgs = typeof args === 'string' ? JSON.parse(args || '{}') : (args || {});
 
     if (tool.scope && userContext) {
       const userPermissions = userContext.permissions || [];
-      if (!userPermissions.includes(tool.scope) && userContext.role !== 'super_admin') {
+      const userScopes = userContext.scopes || [];
+      if (!userPermissions.includes(tool.scope) && !userScopes.includes(tool.scope) && userContext.role !== 'super_admin') {
         throw new SecurityError(`Acceso denegado: el usuario no tiene el scope '${tool.scope}' requerido para usar ${name}.`);
       }
     }
 
-    const valid = tool.validate(args);
+    const valid = tool.validate(normalizedArgs);
     if (!valid) {
       throw new ValidationError(`Parámetros de herramienta inválidos para ${name}`, tool.validate.errors);
     }
@@ -121,7 +123,7 @@ class ToolRegistry {
       throw new Error(`El resolver de la herramienta ${name} no está configurado.`);
     }
 
-    return tool.handler(userContext, args);
+    return tool.handler(userContext, normalizedArgs);
   }
 }
 
@@ -131,7 +133,11 @@ async function createAiService({
   ollamaUrl = process.env.OLLAMA_URL || 'http://127.0.0.1:11434',
   model = process.env.OLLAMA_MODEL || 'mistral',
   timeoutMs = Number(process.env.AI_TIMEOUT_MS || 30000),
-  historyLimit = Number(process.env.AI_HISTORY_LIMIT || 12)
+  historyLimit = Number(process.env.AI_HISTORY_LIMIT || 12),
+  memoryManager = null,
+  contextBuilder = null,
+  automationGenerator = null,
+  toolExecutionLimiter = null
 }) {
   if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true });
 
@@ -242,6 +248,135 @@ async function createAiService({
     return false;
   }
 
+  function functionToolCall(name, args) {
+    return {
+      id: crypto.randomUUID(),
+      type: 'function',
+      function: { name, arguments: args }
+    };
+  }
+
+  function requestConfirmation({ user, userId, sessionId, toolCalls, cId, selectedModel, provider = 'ollama' }) {
+    const confirmationToken = crypto.randomUUID();
+    const calls = toolCalls.map((tc) => ({
+      toolName: tc.function.name,
+      args: tc.function.arguments || {}
+    }));
+
+    pendingConfirmations.set(confirmationToken, {
+      token: confirmationToken,
+      userId,
+      user,
+      sessionId,
+      toolName: calls[0]?.toolName,
+      args: calls[0]?.args || {},
+      toolCalls: calls,
+      correlationId: cId,
+      timestamp: Date.now()
+    });
+
+    addMessage(userId, sessionId, 'assistant', 'Solicitud de confirmacion para accion critica.', {
+      tool_calls: toolCalls,
+      pending_confirmation_token: confirmationToken,
+      username: user.username,
+      correlationId: cId,
+      reason: 'critical_device_action'
+    }, selectedModel);
+
+    return {
+      requiresConfirmation: true,
+      reason: 'critical_device_action',
+      confirmationToken,
+      action: calls.length === 1
+        ? { tool: calls[0].toolName, arguments: calls[0].args }
+        : { tool: 'batch', calls: calls.map((item) => ({ tool: item.toolName, arguments: item.args })) },
+      model: selectedModel,
+      provider,
+      reply: `Necesito confirmacion explicita para ejecutar ${calls.length} accion(es) critica(s).`
+    };
+  }
+
+  async function tryContextualPlan({ user, sessionId, content, selectedModel, cId }) {
+    if (!automationGenerator) return null;
+    const plan = automationGenerator.plan(content);
+    if (!plan) return null;
+
+    if (plan.type === 'device_commands') {
+      const toolCalls = plan.toolCalls.map((call) => functionToolCall(call.tool, {
+        deviceId: call.deviceId,
+        command: call.command
+      }));
+      if (toolExecutionLimiter) toolExecutionLimiter.assertWithinLimit(toolCalls);
+      if (memoryManager) {
+        memoryManager.rememberInteraction(user, sessionId, {
+          deviceIds: plan.toolCalls.map((call) => call.deviceId),
+          locations: plan.locations,
+          summary: plan.summary
+        });
+      }
+      return requestConfirmation({
+        user,
+        userId: String(user.id),
+        sessionId,
+        toolCalls,
+        cId,
+        selectedModel,
+        provider: 'tadashy-orchestrator'
+      });
+    }
+
+    if (plan.type === 'automation_rule') {
+      const toolCall = functionToolCall('createAutomation', plan.automation);
+      if (toolExecutionLimiter) toolExecutionLimiter.assertWithinLimit([toolCall]);
+      addMessage(String(user.id), sessionId, 'assistant', 'Generando automatizacion desde lenguaje natural.', {
+        tool_calls: [toolCall],
+        username: user.username,
+        correlationId: cId
+      }, selectedModel);
+
+      let result;
+      try {
+        const output = await toolRegistry.validateAndExecute('createAutomation', plan.automation, user);
+        result = { success: true, data: output };
+        if (memoryManager) {
+          memoryManager.rememberInteraction(user, sessionId, {
+            deviceIds: [plan.automation.trigger.device, ...plan.automation.actions.map((item) => item.deviceId)],
+            automationIds: output?.automation?.id ? [output.automation.id] : [],
+            summary: `Automatizacion creada: ${plan.automation.name}`
+          });
+        }
+      } catch (err) {
+        result = { success: false, error: err.message || 'Error creando automatizacion.' };
+      }
+
+      addMessage(String(user.id), sessionId, 'tool', JSON.stringify(result), {
+        tool_name: 'createAutomation',
+        username: user.username,
+        correlationId: cId
+      }, selectedModel);
+      const reply = result.success
+        ? 'Listo. Cree la automatizacion y quedo registrada con auditoria.'
+        : `No pude crear la automatizacion: ${result.error}`;
+      const saved = addMessage(String(user.id), sessionId, 'assistant', reply, {
+        username: user.username,
+        provider: 'tadashy-orchestrator',
+        correlationId: cId
+      }, selectedModel);
+      return {
+        reply,
+        model: selectedModel,
+        provider: 'tadashy-orchestrator',
+        message: saved,
+        history: listHistory(user.id, sessionId, historyLimit),
+        tools: toolRegistry.list(),
+        toolCalls: [toolCall],
+        result
+      };
+    }
+
+    return null;
+  }
+
   async function callOllamaChat({ messages, requestModel = model, stream = false, onChunk = null }) {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -333,6 +468,9 @@ async function createAiService({
     const selectedModel = String(requestedModel || model).slice(0, 80) || model;
     addMessage(userId, sessionId, 'user', content, { username: user.username, correlationId: cId }, selectedModel);
 
+    const contextualPlan = await tryContextualPlan({ user, sessionId, content, selectedModel, cId });
+    if (contextualPlan) return contextualPlan;
+
     let loopCount = 0;
     const maxLoops = 3;
 
@@ -342,6 +480,11 @@ async function createAiService({
       const formattedMessages = [
         { role: 'system', content: DEFAULT_SYSTEM_PROMPT }
       ];
+
+      if (contextBuilder) {
+        const context = contextBuilder.build({ user, sessionId, prompt: content });
+        formattedMessages.push({ role: 'system', content: contextBuilder.toSystemContext(context) });
+      }
 
       rawHistory.forEach(item => {
         const msg = { role: item.role, content: item.content };
@@ -362,6 +505,7 @@ async function createAiService({
 
       if (responseMessage.tool_calls && responseMessage.tool_calls.length > 0) {
         loopCount++;
+        if (toolExecutionLimiter) toolExecutionLimiter.assertWithinLimit(responseMessage.tool_calls);
 
         // Buscar si alguna de las tools llamadas por el modelo es crítica/peligrosa
         const criticalCall = responseMessage.tool_calls.find(tc => {

@@ -5,6 +5,16 @@ const crypto = require('crypto');
 const mqtt = require('mqtt');
 const { createIotStore, normalizeDeviceId, parseJson } = require('./iot_store');
 const { createAiService } = require('./ai_service');
+const {
+  AutomationGenerator,
+  ContextBuilder,
+  DeviceRegistry,
+  EventBus,
+  LocationRegistry,
+  MemoryManager,
+  SessionManager,
+  ToolExecutionLimiter
+} = require('./tadashy_ai_core');
 
 class HttpError extends Error {
   constructor(status, message) {
@@ -25,12 +35,15 @@ const MQTT_PASSWORD = process.env.MQTT_PASSWORD || process.env.TADASHY_MQTT_PASS
 let iotStore = null;
 let iotMqttClient = null;
 let aiService = null;
+let aiModules = null;
 const eventClients = new Set();
+const eventBus = new EventBus();
+const sessionManager = new SessionManager();
 
 const SCOPES = {
-  super_admin: ['devices:read', 'telemetry:read', 'automations:read', 'users:read', 'system:read', 'devices:control', 'automations:execute', 'automations:stop'],
-  operator: ['devices:read', 'telemetry:read', 'automations:read', 'system:read', 'devices:control', 'automations:execute', 'automations:stop'],
-  guest: ['devices:read', 'telemetry:read']
+  super_admin: ['ai:chat', 'devices:read', 'telemetry:read', 'automations:read', 'users:read', 'system:read', 'devices:control', 'automations:create', 'automations:execute', 'automations:stop', 'voice:use', 'memory:read', 'memory:write', 'groups:read'],
+  operator: ['ai:chat', 'devices:read', 'telemetry:read', 'automations:read', 'system:read', 'devices:control', 'automations:create', 'automations:execute', 'automations:stop', 'voice:use', 'memory:read', 'memory:write', 'groups:read'],
+  guest: ['devices:read', 'telemetry:read', 'voice:use', 'memory:read']
 };
 
 const activeAutomations = new Map();
@@ -93,6 +106,10 @@ const PERMISSIONS = {
     'ai_chat',
     'view_history',
     'run_automations',
+    'ai:chat',
+    'voice:use',
+    'memory:read',
+    'memory:write',
     'mqtt_status',
     'mqtt_monitor',
     'mqtt_publish',
@@ -103,6 +120,10 @@ const PERMISSIONS = {
     'ai_chat',
     'view_history',
     'run_automations',
+    'ai:chat',
+    'voice:use',
+    'memory:read',
+    'memory:write',
     'mqtt_status',
     'mqtt_publish',
     'robot_control'
@@ -110,6 +131,8 @@ const PERMISSIONS = {
   guest: [
     'view_dashboard',
     'ai_chat',
+    'voice:use',
+    'memory:read',
     'mqtt_status'
   ]
 };
@@ -133,6 +156,7 @@ const MIME = {
 function emitIotEvent(type, payload) {
   const event = `event: ${type}\ndata: ${JSON.stringify({ type, payload, at: new Date().toISOString() })}\n\n`;
   for (const res of eventClients) res.write(event);
+  eventBus.emit(type, payload);
 }
 
 function validateDevicePatch(body = {}) {
@@ -287,6 +311,72 @@ function addHistory(db, user, type, detail, metadata = {}) {
     createdAt: new Date().toISOString()
   });
   db.history = db.history.slice(0, 500);
+}
+
+function createStructuredAutomation(db, user, body, correlationId = crypto.randomUUID()) {
+  if (!body.name || !body.trigger || !Array.isArray(body.actions)) {
+    throw new HttpError(400, 'Automatizacion invalida');
+  }
+  const automation = {
+    id: crypto.randomUUID(),
+    name: String(body.name).slice(0, 120),
+    trigger: body.trigger,
+    actions: body.actions,
+    steps: body.steps || [],
+    source: 'ai_generated',
+    createdBy: user?.id || null,
+    createdAt: new Date().toISOString()
+  };
+  db.automations.unshift(automation);
+  addHistory(db, user, 'automation', `Creo automatizacion ${automation.name}`, {
+    automationId: automation.id,
+    correlationId
+  });
+  return automation;
+}
+
+function executeBackendToolCall(db, user, call, correlationId) {
+  const startTime = Date.now();
+  const toolName = call.toolName || call.tool;
+  const args = call.args || call.arguments || {};
+  let result = null;
+  let status = 'success';
+
+  try {
+    if (toolName === 'sendCommand') {
+      const { deviceId, command } = args;
+      const safeDeviceId = normalizeDeviceId(deviceId);
+      if (!safeDeviceId) throw new Error('deviceId invalido');
+      if (!iotStore.getDevice(safeDeviceId)) throw new Error('Dispositivo no encontrado');
+      const record = iotStore.addCommand(safeDeviceId, String(command).slice(0, 80), {});
+      if (iotMqttClient?.connected) {
+        iotMqttClient.publish(`devices/${record.deviceId}/commands`, JSON.stringify({
+          command: record.command,
+          payload: record.payload || {},
+          at: record.createdAt,
+          correlationId
+        }));
+      }
+      emitIotEvent('command', record);
+      result = { message: `Comando '${record.command}' enviado a '${record.deviceId}' via MQTT.`, command: record };
+    } else if (toolName === 'executeAutomation') {
+      const automation = db.automations.find(a => a.id === args.id);
+      if (!automation) throw new Error('Automatizacion no encontrada.');
+      runAutomationInBackend(automation);
+      result = { message: `Automatizacion '${automation.name}' iniciada en el servidor.` };
+    } else if (toolName === 'stopAutomation') {
+      stopAutomationInBackend(args.id);
+      result = { message: 'Automatizacion detenida exitosamente en el servidor.' };
+    } else {
+      throw new Error(`Tool no ejecutable por confirmacion: ${toolName}`);
+    }
+  } catch (err) {
+    status = 'error';
+    result = { error: err.message || 'Error durante la ejecucion.' };
+  }
+
+  iotStore.addAuditLog(correlationId, user.id, user.username, toolName, args, status, Date.now() - startTime, result);
+  return { toolName, status, result };
 }
 
 function requireEventAuth(req, db, permission) {
@@ -505,6 +595,65 @@ async function handleApi(req, res, url) {
     return send(res, 200, { history });
   }
 
+  if (route === 'GET /api/ai/memory') {
+    const allowed = requireAuth(req, db, 'memory:read');
+    if (allowed.error) return send(res, allowed.status, { error: allowed.error });
+    const sessionId = url.searchParams.get('sessionId') || 'default';
+    return send(res, 200, { memory: iotStore.getMemoryProfile(allowed.user.id, sessionId) });
+  }
+
+  if (route === 'PATCH /api/ai/memory') {
+    const allowed = requireAuth(req, db, 'memory:write');
+    if (allowed.error) return send(res, allowed.status, { error: allowed.error });
+    const body = await parseBody(req);
+    const sessionId = body.sessionId || 'default';
+    const memory = iotStore.upsertMemoryProfile(allowed.user.id, sessionId, body.memory || {});
+    addHistory(db, allowed.user, 'ai_memory', 'Actualizo memoria operacional', { sessionId });
+    writeDb(db);
+    return send(res, 200, { memory });
+  }
+
+  if (route === 'GET /api/iot/groups') {
+    const allowed = requireAuth(req, db, 'view_dashboard');
+    if (allowed.error) return send(res, allowed.status, { error: allowed.error });
+    return send(res, 200, { groups: iotStore.listGroups(), locations: iotStore.listLocations() });
+  }
+
+  if (route === 'POST /api/iot/groups') {
+    const allowed = requireAuth(req, db, 'manage_devices');
+    if (allowed.error) return send(res, allowed.status, { error: allowed.error });
+    const body = await parseBody(req);
+    const group = iotStore.upsertGroup(body.name, body);
+    addHistory(db, allowed.user, 'iot_group', `Guardo grupo ${group?.name || body.name}`);
+    writeDb(db);
+    return send(res, 201, { group });
+  }
+
+  if (route === 'POST /api/iot/locations') {
+    const allowed = requireAuth(req, db, 'manage_devices');
+    if (allowed.error) return send(res, allowed.status, { error: allowed.error });
+    const body = await parseBody(req);
+    const location = iotStore.upsertLocation(body.name, body);
+    addHistory(db, allowed.user, 'iot_location', `Guardo ubicacion ${location?.name || body.name}`);
+    writeDb(db);
+    return send(res, 201, { location });
+  }
+
+  if (route === 'GET /api/voice/config') {
+    const allowed = requireAuth(req, db, 'voice:use');
+    if (allowed.error) return send(res, allowed.status, { error: allowed.error });
+    const sessionId = url.searchParams.get('sessionId') || 'default';
+    const memory = iotStore.getMemoryProfile(allowed.user.id, sessionId);
+    return send(res, 200, {
+      wakeWord: 'hey tadashy',
+      stt: 'web_speech_api',
+      tts: 'speech_synthesis',
+      vad: 'browser_energy_detection',
+      handsFree: memory.preferences?.handsFree === true,
+      voice: memory.preferences?.voice || null
+    });
+  }
+
   if (route === 'POST /api/ai/chat') {
     const allowed = requireAuth(req, db, 'ai_chat');
     if (allowed.error) return send(res, allowed.status, { error: allowed.error });
@@ -521,6 +670,7 @@ async function handleApi(req, res, url) {
 
     const sessionId = body.sessionId || 'default';
     const stream = body.stream === true;
+    sessionManager.touch(allowed.user.id, sessionId, { channel: body.channel || 'text' });
 
     if (stream) {
       res.writeHead(200, {
@@ -600,10 +750,51 @@ async function handleApi(req, res, url) {
       return send(res, 403, { error: 'No estás autorizado para confirmar esta acción.' });
     }
 
+    if (Array.isArray(pending.toolCalls) && pending.toolCalls.length > 1) {
+      for (const pendingCall of pending.toolCalls) {
+        const registeredTool = aiService.toolRegistry.get(pendingCall.toolName);
+        if (registeredTool && registeredTool.scope) {
+          const userPermissions = allowed.permissions || [];
+          const userScopes = allowed.user.scopes || [];
+          if (!userPermissions.includes(registeredTool.scope) && !userScopes.includes(registeredTool.scope) && allowed.user.role !== 'super_admin') {
+            iotStore.addAuditLog(pending.correlationId, allowed.user.id, allowed.user.username, pendingCall.toolName, pendingCall.args, 'denied', 0, { error: 'Falta de scopes' });
+            return send(res, 403, { error: `No tienes el scope '${registeredTool.scope}' requerido para ejecutar esta accion.` });
+          }
+        }
+      }
+
+      const results = pending.toolCalls.map((call) => executeBackendToolCall(db, allowed.user, call, pending.correlationId));
+      const failed = results.find((item) => item.status === 'error');
+      const batchStatus = failed ? 'error' : 'success';
+      const batchResult = failed
+        ? { results, error: failed.result.error }
+        : { results, message: `${results.length} accion(es) ejecutada(s) por backend.` };
+
+      aiService.pendingConfirmations.delete(body.token);
+      aiService.addMessage(allowed.user.id, pending.sessionId || 'default', 'tool', JSON.stringify(batchResult), {
+        tool_name: 'batch',
+        username: allowed.user.username,
+        correlationId: pending.correlationId
+      }, aiService.model);
+
+      const finalReply = batchStatus === 'success'
+        ? `Confirmado. Ejecute ${pending.toolCalls.length} accion(es) con exito.`
+        : `Error al ejecutar la accion: ${batchResult.error}`;
+      aiService.addMessage(allowed.user.id, pending.sessionId || 'default', 'assistant', finalReply, {
+        username: allowed.user.username,
+        correlationId: pending.correlationId
+      }, aiService.model);
+
+      if (batchStatus === 'error') return send(res, 500, { error: batchResult.error, result: batchResult });
+      writeDb(db);
+      return send(res, 200, { success: true, message: finalReply, result: batchResult });
+    }
+
     const tool = aiService.toolRegistry.get(pending.toolName);
     if (tool && tool.scope) {
       const userPermissions = allowed.permissions || [];
-      if (!userPermissions.includes(tool.scope) && allowed.user.role !== 'super_admin') {
+      const userScopes = allowed.user.scopes || [];
+      if (!userPermissions.includes(tool.scope) && !userScopes.includes(tool.scope) && allowed.user.role !== 'super_admin') {
         iotStore.addAuditLog(pending.correlationId, allowed.user.id, allowed.user.username, pending.toolName, pending.args, 'denied', 0, { error: 'Falta de scopes' });
         return send(res, 403, { error: `No tienes el scope '${tool.scope}' requerido para ejecutar esta acción.` });
       }
@@ -806,9 +997,23 @@ ensureDb();
 
 (async function start() {
   iotStore = await createIotStore({ dataDir: DATA_DIR });
-  
+
+  aiModules = {};
+  aiModules.memoryManager = new MemoryManager(iotStore);
+  aiModules.deviceRegistry = new DeviceRegistry(iotStore);
+  aiModules.locationRegistry = new LocationRegistry(iotStore);
+  aiModules.contextBuilder = new ContextBuilder(aiModules);
+  aiModules.automationGenerator = new AutomationGenerator(aiModules);
+  aiModules.toolExecutionLimiter = new ToolExecutionLimiter({ maxCalls: 50 });
+
   // Inicializar servicio de IA
-  aiService = await createAiService({ dataDir: DATA_DIR });
+  aiService = await createAiService({
+    dataDir: DATA_DIR,
+    memoryManager: aiModules.memoryManager,
+    contextBuilder: aiModules.contextBuilder,
+    automationGenerator: aiModules.automationGenerator,
+    toolExecutionLimiter: aiModules.toolExecutionLimiter
+  });
 
   // Registrar resolvers de tools seguras
   aiService.toolRegistry.register({
@@ -863,6 +1068,73 @@ ensureDb();
       const db = readDb();
       return db.automations || [];
     }
+  });
+
+  aiService.toolRegistry.register({
+    name: 'createAutomation',
+    description: 'Crea una automatizacion estructurada generada desde lenguaje natural. La ejecucion posterior requiere validacion backend.',
+    scope: 'automations:create',
+    schema: {
+      type: 'object',
+      properties: {
+        name: { type: 'string', minLength: 3, maxLength: 120 },
+        trigger: {
+          type: 'object',
+          properties: {
+            device: { type: 'string', minLength: 3, maxLength: 64 },
+            condition: { type: 'string', minLength: 3, maxLength: 120 }
+          },
+          required: ['device', 'condition'],
+          additionalProperties: false
+        },
+        actions: {
+          type: 'array',
+          minItems: 1,
+          maxItems: 20,
+          items: {
+            type: 'object',
+            properties: {
+              tool: { const: 'sendCommand' },
+              deviceId: { type: 'string', minLength: 3, maxLength: 64 },
+              command: { type: 'string', minLength: 1, maxLength: 120 }
+            },
+            required: ['tool', 'deviceId', 'command'],
+            additionalProperties: false
+          }
+        }
+      },
+      required: ['name', 'trigger', 'actions'],
+      additionalProperties: false
+    },
+    handler: (user, args) => {
+      const db = readDb();
+      const automation = createStructuredAutomation(db, user, args);
+      writeDb(db);
+      iotStore.addAuditLog(crypto.randomUUID(), user.id, user.username, 'createAutomation', args, 'success', 0, { automationId: automation.id });
+      return { automation };
+    }
+  });
+
+  aiService.toolRegistry.register({
+    name: 'getMemory',
+    description: 'Consulta la memoria operacional persistente del usuario y sesion actual.',
+    scope: 'memory:read',
+    schema: {
+      type: 'object',
+      properties: {
+        sessionId: { type: 'string', minLength: 1, maxLength: 80 }
+      },
+      additionalProperties: false
+    },
+    handler: (user, { sessionId = 'default' }) => iotStore.getMemoryProfile(user.id, sessionId)
+  });
+
+  aiService.toolRegistry.register({
+    name: 'getGroups',
+    description: 'Consulta grupos y ubicaciones semanticas para resolver comandos naturales.',
+    scope: 'groups:read',
+    schema: { type: 'object', properties: {}, additionalProperties: false },
+    handler: () => ({ groups: iotStore.listGroups(), locations: iotStore.listLocations() })
   });
 
   aiService.toolRegistry.register({
