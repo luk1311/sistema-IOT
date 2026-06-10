@@ -4,6 +4,7 @@ const path = require('path');
 const crypto = require('crypto');
 const mqtt = require('mqtt');
 const { createIotStore, normalizeDeviceId, parseJson } = require('./iot_store');
+const { createAiService } = require('./ai_service');
 
 class HttpError extends Error {
   constructor(status, message) {
@@ -23,6 +24,7 @@ const MQTT_PASSWORD = process.env.MQTT_PASSWORD || process.env.TADASHY_MQTT_PASS
 
 let iotStore = null;
 let iotMqttClient = null;
+let aiService = null;
 const eventClients = new Set();
 
 const PERMISSIONS = {
@@ -32,6 +34,7 @@ const PERMISSIONS = {
     'manage_devices',
     'manage_settings',
     'view_dashboard',
+    'ai_chat',
     'view_history',
     'run_automations',
     'mqtt_status',
@@ -41,6 +44,7 @@ const PERMISSIONS = {
   ],
   operator: [
     'view_dashboard',
+    'ai_chat',
     'view_history',
     'run_automations',
     'mqtt_status',
@@ -49,6 +53,7 @@ const PERMISSIONS = {
   ],
   guest: [
     'view_dashboard',
+    'ai_chat',
     'mqtt_status'
   ]
 };
