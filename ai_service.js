@@ -392,10 +392,10 @@ async function createAiService({
 
     try {
       const isGroq = Boolean(process.env.GROQ_API_KEY);
-      // Map local model names to Groq models
+      // Map local model names to active Groq models (mixtral-8x7b-32768 is decommissioned)
       let activeModel = requestModel;
       if (isGroq && requestModel === 'mistral') {
-        activeModel = 'mixtral-8x7b-32768';
+        activeModel = 'llama3-8b-8192'; // Using Llama 3 8B which is fast and supports tool calling
       }
 
       const payload = {
