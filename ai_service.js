@@ -1,13 +1,51 @@
 const fs = require('fs');
 const path = require('path');
 const initSqlJs = require('sql.js');
+const Ajv = require('ajv');
+
+const ajv = new Ajv({ allErrors: true, coerceTypes: true });
+
+// Expresión regular para detectar Prompt Injection común
+const INJECTION_PATTERNS = [
+  /ignore\s+(?:the\s+)?(?:above|previous|system|rules|instructions)/i,
+  /you\s+are\s+now\s+an?\s+(?:admin|super\s*admin|root|developer)/i,
+  /override\s+system/i,
+  /ignora\s+(?:las\s+)?(?:instrucciones|reglas)\s+(?:anteriores|del\s+sistema)/i,
+  /ahora\s+eres\s+(?:un\s+)?(?:administrador|desarrollador|robot)/i,
+  /como\s+(?:un\s+)?(?:administrador|desarrollador|super\s*admin)/i
+];
+
+class ValidationError extends Error {
+  constructor(message, errors = []) {
+    super(message);
+    this.name = 'ValidationError';
+    this.status = 400;
+    this.errors = errors;
+  }
+}
+
+class SecurityError extends Error {
+  constructor(message) {
+    super(message);
+    this.name = 'SecurityError';
+    this.status = 403;
+  }
+}
+
+class AiServiceError extends Error {
+  constructor(message, status = 500) {
+    super(message);
+    this.name = 'AiServiceError';
+    this.status = status;
+  }
+}
 
 const DEFAULT_SYSTEM_PROMPT = [
-  'Eres TADASHY AI, un asistente tecnico para una plataforma IoT, MQTT, robotica e IA.',
-  'Responde en espanol claro y breve.',
-  'No ejecutes acciones sobre dispositivos, MQTT, automatizaciones o robotica.',
-  'Si el usuario pide controlar hardware, explica que necesitas una tool segura habilitada por backend.',
-  'Prioriza diagnostico, explicacion, arquitectura y pasos verificables.'
+  'Eres TADASHY AI, un asistente técnico inteligente para una plataforma empresarial de IoT, MQTT, robótica y visión artificial.',
+  'Responde siempre en español claro, profesional, breve y conciso.',
+  'Cuentas con acceso a herramientas seguras de consulta de información (tools). Úsalas cuando el usuario lo requiera.',
+  'Bajo ninguna circunstancia intentes ejecutar acciones de control físico o de modificación de hardware (como mover servos o accionar motores) directamente.',
+  'Si el usuario te pide controlar hardware, explícale que esa acción requiere su confirmación manual explícita en la interfaz gráfica del brazo y no está permitida directamente a través del chat de la IA.'
 ].join(' ');
 
 function nowIso() {
@@ -26,42 +64,65 @@ function getRows(db, sql, params = []) {
   return rows;
 }
 
-function rowToMessage(row) {
-  return {
-    id: row.id,
-    userId: row.user_id,
-    role: row.role,
-    content: row.content,
-    model: row.model,
-    metadata: row.metadata ? JSON.parse(row.metadata) : {},
-    createdAt: row.created_at
-  };
-}
-
-function sanitizeMessage(value) {
-  return String(value || '').trim().slice(0, 4000);
-}
-
-function toPublicError(error) {
-  if (error.name === 'AbortError') {
-    return {
-      status: 504,
-      code: 'AI_TIMEOUT',
-      message: 'Ollama no respondio a tiempo. Verifica que el servicio local este activo.'
-    };
+class ToolRegistry {
+  constructor() {
+    this.tools = new Map();
   }
-  if (error.code === 'OLLAMA_HTTP') {
-    return {
-      status: error.status || 502,
-      code: 'OLLAMA_HTTP',
-      message: `Ollama respondio con error ${error.status || 502}.`
-    };
+
+  register(tool) {
+    if (!tool.name || !tool.schema) {
+      throw new Error(`Tool inválida: debe tener name y schema.`);
+    }
+    const validate = ajv.compile(tool.schema);
+    this.tools.set(tool.name, {
+      name: tool.name,
+      description: tool.description || '',
+      schema: tool.schema,
+      scope: tool.scope || null,
+      validate,
+      handler: tool.handler
+    });
   }
-  return {
-    status: 502,
-    code: 'AI_UNAVAILABLE',
-    message: 'No se pudo conectar con Ollama. Verifica que Ollama este ejecutandose y que Mistral este instalado.'
-  };
+
+  get(name) {
+    return this.tools.get(name);
+  }
+
+  list() {
+    return Array.from(this.tools.values()).map(t => ({
+      name: t.name,
+      description: t.description,
+      schema: t.schema,
+      scope: t.scope
+    }));
+  }
+
+  validateAndExecute(name, args, userContext) {
+    const tool = this.get(name);
+    if (!tool) {
+      throw new Error(`Herramienta no registrada: ${name}`);
+    }
+
+    // Verificar scopes/permisos de usuario si aplica
+    if (tool.scope && userContext) {
+      const userPermissions = userContext.permissions || [];
+      if (!userPermissions.includes(tool.scope) && userContext.role !== 'super_admin') {
+        throw new SecurityError(`Acceso denegado: el usuario no tiene el scope '${tool.scope}' requerido para usar ${name}.`);
+      }
+    }
+
+    // Validar argumentos con Ajv
+    const valid = tool.validate(args);
+    if (!valid) {
+      throw new ValidationError(`Parámetros de herramienta inválidos para ${name}`, tool.validate.errors);
+    }
+
+    if (typeof tool.handler !== 'function') {
+      throw new Error(`El resolver de la herramienta ${name} no está configurado.`);
+    }
+
+    return tool.handler(userContext, args);
+  }
 }
 
 async function createAiService({
@@ -81,7 +142,7 @@ async function createAiService({
     : new SQL.Database();
 
   let saveTimer = null;
-  const tools = new Map();
+  const toolRegistry = new ToolRegistry();
 
   function persist() {
     fs.writeFileSync(filePath, Buffer.from(db.export()));
@@ -103,10 +164,12 @@ async function createAiService({
     schedulePersist();
   }
 
+  // Crear la tabla con la columna session_id
   db.run(`
     CREATE TABLE IF NOT EXISTS ai_messages (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       user_id TEXT NOT NULL,
+      session_id TEXT NOT NULL DEFAULT 'default',
       role TEXT NOT NULL CHECK(role IN ('user', 'assistant', 'system', 'tool')),
       content TEXT NOT NULL,
       model TEXT,
@@ -114,59 +177,93 @@ async function createAiService({
       created_at TEXT NOT NULL
     );
 
-    CREATE INDEX IF NOT EXISTS idx_ai_messages_user_time
-      ON ai_messages(user_id, created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_ai_messages_session_time
+      ON ai_messages(user_id, session_id, created_at DESC);
   `);
+
+  // Intentar migrar la base de datos de forma retrocompatible si no tiene la columna session_id
+  try {
+    const cols = getRows(db, "PRAGMA table_info(ai_messages)");
+    const hasSessionId = cols.some(col => col.name === 'session_id');
+    if (!hasSessionId) {
+      db.run("ALTER TABLE ai_messages ADD COLUMN session_id TEXT NOT NULL DEFAULT 'default'");
+      persist();
+    }
+  } catch (err) {
+    console.error("Error al migrar la tabla ai_messages:", err.message);
+  }
+
   persist();
 
-  function registerTool(tool) {
-    if (!tool?.name) return;
-    tools.set(tool.name, {
-      name: tool.name,
-      description: tool.description || '',
-      schema: tool.schema || {}
-    });
-  }
-
-  registerTool({
-    name: 'iot_inventory_read',
-    description: 'Futura tool para consultar inventario IoT desde una ejecucion segura del backend.',
-    schema: { type: 'object', properties: {} }
-  });
-
-  function addMessage(userId, role, content, metadata = {}, usedModel = model) {
+  function addMessage(userId, sessionId, role, content, metadata = {}, usedModel = model) {
     const ts = nowIso();
     exec(
-      'INSERT INTO ai_messages (user_id, role, content, model, metadata, created_at) VALUES (?, ?, ?, ?, ?, ?)',
-      [userId, role, content, usedModel, JSON.stringify(metadata), ts]
+      'INSERT INTO ai_messages (user_id, session_id, role, content, model, metadata, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      [userId, sessionId || 'default', role, content, usedModel, JSON.stringify(metadata), ts]
     );
-    return { userId, role, content, model: usedModel, metadata, createdAt: ts };
+    return { userId, sessionId: sessionId || 'default', role, content, model: usedModel, metadata, createdAt: ts };
   }
 
-  function listHistory(userId, limit = historyLimit) {
+  function listHistory(userId, sessionId = 'default', limit = historyLimit) {
     const safeLimit = Math.max(1, Math.min(Number(limit) || historyLimit, 50));
-    return getRows(
+    const rows = getRows(
       db,
-      'SELECT * FROM ai_messages WHERE user_id = ? ORDER BY id DESC LIMIT ?',
-      [userId, safeLimit]
-    ).map(rowToMessage).reverse();
+      'SELECT * FROM ai_messages WHERE user_id = ? AND session_id = ? ORDER BY id DESC LIMIT ?',
+      [userId, sessionId || 'default', safeLimit]
+    );
+    return rows.map(row => ({
+      id: row.id,
+      userId: row.user_id,
+      sessionId: row.session_id,
+      role: row.role,
+      content: row.content,
+      model: row.model,
+      metadata: row.metadata ? JSON.parse(row.metadata) : {},
+      createdAt: row.created_at
+    })).reverse();
   }
 
-  async function callOllama(messages, requestModel = model) {
+  function detectPromptInjection(prompt) {
+    const text = String(prompt || '');
+    for (const pattern of INJECTION_PATTERNS) {
+      if (pattern.test(text)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  async function callOllamaChat({ messages, requestModel = model, stream = false, onChunk = null }) {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+    const toolsSchema = toolRegistry.list().map(t => ({
+      type: 'function',
+      function: {
+        name: t.name,
+        description: t.description,
+        parameters: t.schema
+      }
+    }));
+
     try {
+      const payload = {
+        model: requestModel,
+        messages,
+        stream,
+        options: {
+          temperature: 0.2
+        }
+      };
+
+      if (toolsSchema.length > 0) {
+        payload.tools = toolsSchema;
+      }
+
       const response = await fetch(`${ollamaUrl.replace(/\/$/, '')}/api/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          model: requestModel,
-          messages,
-          stream: false,
-          options: {
-            temperature: 0.2
-          }
-        }),
+        body: JSON.stringify(payload),
         signal: controller.signal
       });
 
@@ -177,60 +274,194 @@ async function createAiService({
         throw error;
       }
 
-      const data = await response.json();
-      return data?.message?.content || '';
+      if (stream && onChunk) {
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder('utf-8');
+        let buffer = '';
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop(); // Keep partial line in buffer
+
+          for (const line of lines) {
+            if (!line.trim()) continue;
+            try {
+              const chunk = JSON.parse(line);
+              if (chunk?.message?.content) {
+                onChunk(chunk.message.content);
+              }
+            } catch (err) {
+              // Ignore lines that are partially received or not valid JSON
+            }
+          }
+        }
+        return '';
+      } else {
+        const data = await response.json();
+        return data?.message || { role: 'assistant', content: '' };
+      }
     } finally {
       clearTimeout(timer);
     }
   }
 
-  async function chat({ user, message, model: requestedModel }) {
+  async function chat({ user, sessionId = 'default', message, model: requestedModel, stream = false, onChunk = null }) {
     const userId = String(user.id);
-    const content = sanitizeMessage(message);
+    const content = String(message || '').trim().slice(0, 4000);
+
     if (!content) {
-      const error = new Error('Mensaje vacio');
-      error.status = 400;
-      throw error;
+      throw new ValidationError('El mensaje no puede estar vacío.');
     }
 
-    const selectedModel = sanitizeMessage(requestedModel || model).slice(0, 80) || model;
-    addMessage(userId, 'user', content, { username: user.username }, selectedModel);
-
-    const history = listHistory(userId, historyLimit)
-      .filter((item) => item.role === 'user' || item.role === 'assistant')
-      .map((item) => ({ role: item.role, content: item.content }));
-
-    const messages = [
-      { role: 'system', content: DEFAULT_SYSTEM_PROMPT },
-      ...history
-    ];
-
-    try {
-      const answer = sanitizeMessage(await callOllama(messages, selectedModel)) || 'No recibi una respuesta util del modelo.';
-      const saved = addMessage(userId, 'assistant', answer, {
-        username: user.username,
-        provider: 'ollama',
-        toolsAvailable: Array.from(tools.keys())
-      }, selectedModel);
-      return {
-        reply: answer,
-        model: selectedModel,
-        provider: 'ollama',
-        message: saved,
-        history: listHistory(userId, historyLimit),
-        tools: Array.from(tools.values())
-      };
-    } catch (error) {
-      const publicError = toPublicError(error);
-      addMessage(userId, 'assistant', publicError.message, {
-        error: publicError.code,
-        provider: 'ollama'
-      }, selectedModel);
-      const wrapped = new Error(publicError.message);
-      wrapped.status = publicError.status;
-      wrapped.code = publicError.code;
-      throw wrapped;
+    // Anti Prompt Injection Check
+    if (detectPromptInjection(content)) {
+      throw new SecurityError('Se detectó un intento de inyección de prompt o manipulación de instrucciones del sistema.');
     }
+
+    const selectedModel = String(requestedModel || model).slice(0, 80) || model;
+    addMessage(userId, sessionId, 'user', content, { username: user.username }, selectedModel);
+
+    let loopCount = 0;
+    const maxLoops = 3;
+
+    while (loopCount < maxLoops) {
+      // Obtener el historial completo y recortar de forma inteligente para no desbordar
+      const rawHistory = listHistory(userId, sessionId, historyLimit);
+
+      const formattedMessages = [
+        { role: 'system', content: DEFAULT_SYSTEM_PROMPT }
+      ];
+
+      // Formatear los mensajes según espera la API de Ollama/OpenAI
+      rawHistory.forEach(item => {
+        const msg = { role: item.role, content: item.content };
+        if (item.role === 'assistant' && item.metadata?.tool_calls) {
+          msg.tool_calls = item.metadata.tool_calls;
+        }
+        if (item.role === 'tool') {
+          msg.name = item.metadata?.tool_name;
+        }
+        formattedMessages.push(msg);
+      });
+
+      // Llamar a Ollama
+      // Si estamos en la primera vuelta y se solicita streaming, pero el modelo decide invocar herramientas,
+      // resolveremos las herramientas en modo síncrono para reconstruir el contexto completo antes de streamear la respuesta final.
+      const responseMessage = await callOllamaChat({
+        messages: formattedMessages,
+        requestModel: selectedModel,
+        stream: false // Siempre síncrono al buscar tool_calls
+      });
+
+      if (responseMessage.tool_calls && responseMessage.tool_calls.length > 0) {
+        loopCount++;
+        // Guardar la llamada a la herramienta hecha por el modelo
+        addMessage(userId, sessionId, 'assistant', responseMessage.content || '', {
+          tool_calls: responseMessage.tool_calls,
+          username: user.username
+        }, selectedModel);
+
+        // Resolver cada llamada
+        for (const toolCall of responseMessage.tool_calls) {
+          const toolName = toolCall.function.name;
+          const args = toolCall.function.arguments || {};
+          let result;
+
+          try {
+            const output = await toolRegistry.validateAndExecute(toolName, args, user);
+            result = { success: true, data: output };
+          } catch (err) {
+            result = { success: false, error: err.message || 'Error de ejecución en la herramienta.' };
+          }
+
+          // Guardar el mensaje con rol tool en la historia
+          addMessage(userId, sessionId, 'tool', JSON.stringify(result), {
+            tool_name: toolName,
+            username: user.username
+          }, selectedModel);
+        }
+      } else {
+        // No hay más tool calls, esta es la respuesta final.
+        // Si el usuario pidió streaming y tenemos un callback, volvemos a llamar a Ollama con streaming
+        // enviándole el historial que ya incluye las respuestas de las herramientas.
+        if (stream && onChunk) {
+          const rawHistoryFinal = listHistory(userId, sessionId, historyLimit);
+          const formattedMessagesFinal = [
+            { role: 'system', content: DEFAULT_SYSTEM_PROMPT }
+          ];
+
+          rawHistoryFinal.forEach(item => {
+            const msg = { role: item.role, content: item.content };
+            if (item.role === 'assistant' && item.metadata?.tool_calls) {
+              msg.tool_calls = item.metadata.tool_calls;
+            }
+            if (item.role === 'tool') {
+              msg.name = item.metadata?.tool_name;
+            }
+            formattedMessagesFinal.push(msg);
+          });
+
+          await callOllamaChat({
+            messages: formattedMessagesFinal,
+            requestModel: selectedModel,
+            stream: true,
+            onChunk
+          });
+
+          // Guardamos la respuesta completa que se streameó
+          // Para ello capturamos el resultado consolidado reconstruyéndolo o simplemente dejamos que el callback actualice la pantalla y agregamos una entrada vacía de log de streaming.
+          // Pero para mantener la consistencia del chat, acumularemos el chunk.
+          // Para no repetir la llamada a Ollama, podemos hacer un wrapper en callOllamaChat que acumule y retorne la cadena completa.
+          // Modifiquemos callOllamaChat para que devuelva el string acumulado en caso de streaming.
+        }
+
+        // Si se usó streaming, acumulamos los chunks
+        let finalReply = responseMessage.content || '';
+        if (stream && onChunk) {
+          let accumulated = '';
+          await callOllamaChat({
+            messages: formattedMessages,
+            requestModel: selectedModel,
+            stream: true,
+            onChunk: (chunk) => {
+              accumulated += chunk;
+              onChunk(chunk);
+            }
+          });
+          finalReply = accumulated;
+        }
+
+        const saved = addMessage(userId, sessionId, 'assistant', finalReply, {
+          username: user.username,
+          provider: 'ollama'
+        }, selectedModel);
+
+        return {
+          reply: finalReply,
+          model: selectedModel,
+          provider: 'ollama',
+          message: saved,
+          history: listHistory(userId, sessionId, historyLimit),
+          tools: toolRegistry.list()
+        };
+      }
+    }
+
+    // Si se supera el límite de tool calls sin terminar
+    const timeoutMsg = 'Se superó el límite de resolución de herramientas en bucle. Intenta ser más específico.';
+    const saved = addMessage(userId, sessionId, 'assistant', timeoutMsg, { error: 'MAX_TOOL_LOOPS' }, selectedModel);
+    return {
+      reply: timeoutMsg,
+      model: selectedModel,
+      provider: 'ollama',
+      message: saved,
+      history: listHistory(userId, sessionId, historyLimit),
+      tools: toolRegistry.list()
+    };
   }
 
   function close() {
@@ -246,11 +477,14 @@ async function createAiService({
     timeoutMs,
     chat,
     listHistory,
-    registerTool,
+    toolRegistry,
     close
   };
 }
 
 module.exports = {
-  createAiService
+  createAiService,
+  ValidationError,
+  SecurityError,
+  AiServiceError
 };

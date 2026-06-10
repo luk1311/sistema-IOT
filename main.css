@@ -581,3 +581,245 @@ input[type=range]::-webkit-slider-thumb {
   .nav-tabs { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .message-row, .history-row { grid-template-columns: 1fr; }
 }
+
+/* AI Chat View Enterprise Styling */
+.ai-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(300px, 380px);
+  gap: 14px;
+}
+
+.chat-panel {
+  display: flex;
+  flex-direction: column;
+  height: calc(100vh - 120px);
+  min-height: 480px;
+}
+
+.chat-messages {
+  flex: 1;
+  overflow-y: auto;
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  border: 0.5px solid var(--line);
+  border-radius: 8px;
+  background: rgba(14, 11, 26, 0.45);
+  margin-bottom: 12px;
+}
+
+.chat-bubble {
+  display: flex;
+  gap: 10px;
+  max-width: 85%;
+  align-self: flex-start;
+  animation: fadeInBubble 0.25s ease-out forwards;
+}
+
+.chat-bubble.bubble-user {
+  align-self: flex-end;
+  flex-direction: row-reverse;
+}
+
+.chat-avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--panel-2);
+  border: 0.5px solid var(--line-strong);
+  color: var(--muted);
+  flex-shrink: 0;
+}
+
+.bubble-user .chat-avatar {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}
+
+.bubble-assistant .chat-avatar {
+  background: #1e1050;
+  color: #c4b5fd;
+  border-color: var(--accent);
+}
+
+.chat-body {
+  padding: 10px 14px;
+  border-radius: 12px;
+  font-size: 13px;
+  line-height: 1.45;
+  background: var(--panel-2);
+  border: 0.5px solid var(--line);
+  color: var(--text);
+  word-break: break-word;
+}
+
+.bubble-user .chat-body {
+  background: rgba(124, 106, 255, 0.15);
+  border-color: rgba(124, 106, 255, 0.4);
+}
+
+.bubble-err .chat-body {
+  background: rgba(248, 113, 145, 0.1);
+  border-color: rgba(248, 113, 145, 0.4);
+  color: var(--err);
+}
+
+.chat-input-row {
+  display: flex;
+  gap: 8px;
+}
+
+.chat-input-row input {
+  flex: 1;
+}
+
+.chat-input-row button {
+  width: 44px;
+  flex-shrink: 0;
+}
+
+/* Capabilities Panel */
+.capabilities-panel {
+  display: flex;
+  flex-direction: column;
+  height: calc(100vh - 120px);
+  min-height: 480px;
+  overflow-y: auto;
+}
+
+.capabilities-content {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.cap-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-bottom: 10px;
+  border-bottom: 0.5px solid var(--line);
+}
+
+.cap-item span {
+  font-size: 11px;
+  color: var(--dim);
+  text-transform: uppercase;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+}
+
+.cap-item strong {
+  font-size: 13px;
+  color: #c4b5fd;
+}
+
+.cap-item code {
+  font-family: Consolas, monospace;
+  font-size: 12px;
+  color: var(--muted);
+  word-break: break-all;
+}
+
+.cap-tools-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.cap-tools-section > span {
+  font-size: 11px;
+  color: var(--dim);
+  text-transform: uppercase;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+}
+
+.tools-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 320px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.cap-tool-card {
+  padding: 8px 10px;
+  background: rgba(30, 22, 56, 0.45);
+  border: 0.5px solid var(--line);
+  border-radius: 6px;
+}
+
+.cap-tool-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 4px;
+}
+
+.tool-name {
+  font-size: 12px;
+  font-weight: 700;
+  color: #c4b5fd;
+}
+
+.tool-scope {
+  font-size: 9px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: rgba(160, 130, 255, 0.1);
+  border: 0.5px solid rgba(160, 130, 255, 0.2);
+  color: var(--muted);
+}
+
+.tool-desc {
+  font-size: 11px;
+  color: var(--dim);
+  line-height: 1.3;
+}
+
+/* Loading Animation dots */
+.ai-loading-dots span {
+  animation: loadingDots 1.4s infinite both;
+  font-size: 18px;
+  display: inline-block;
+  line-height: 1;
+}
+
+.ai-loading-dots span:nth-child(2) {
+  animation-delay: .2s;
+}
+
+.ai-loading-dots span:nth-child(3) {
+  animation-delay: .4s;
+}
+
+@keyframes loadingDots {
+  0% { opacity: .2; }
+  20% { opacity: 1; }
+  100% { opacity: .2; }
+}
+
+@keyframes fadeInBubble {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@media (max-width: 920px) {
+  .ai-layout {
+    grid-template-columns: 1fr;
+  }
+  .chat-panel, .capabilities-panel {
+    height: auto;
+    min-height: auto;
+  }
+  .chat-messages {
+    height: 380px;
+  }
+}

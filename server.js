@@ -27,6 +27,27 @@ let iotMqttClient = null;
 let aiService = null;
 const eventClients = new Set();
 
+const SCOPES = {
+  super_admin: ['devices:read', 'telemetry:read', 'automations:read', 'users:read', 'system:read'],
+  operator: ['devices:read', 'telemetry:read', 'automations:read', 'system:read'],
+  guest: ['devices:read', 'telemetry:read']
+};
+
+const rateLimits = new Map();
+function checkRateLimit(req, limit = 15, windowMs = 60000) {
+  const ip = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
+  const now = Date.now();
+  const state = rateLimits.get(ip) || { count: 0, resetTime: now + windowMs };
+  if (now > state.resetTime) {
+    state.count = 1;
+    state.resetTime = now + windowMs;
+  } else {
+    state.count++;
+  }
+  rateLimits.set(ip, state);
+  return state.count <= limit;
+}
+
 const PERMISSIONS = {
   super_admin: [
     'manage_users',
@@ -208,7 +229,16 @@ function requireAuth(req, db, permission) {
   if (!user) return { error: 'Usuario inactivo o inexistente', status: 401 };
   const permissions = PERMISSIONS[user.role] || [];
   if (permission && !permissions.includes(permission)) return { error: 'Permiso denegado', status: 403 };
-  return { user, token, permissions };
+
+  const scopes = SCOPES[user.role] || [];
+  const userContext = {
+    id: user.id,
+    username: user.username,
+    role: user.role,
+    permissions,
+    scopes
+  };
+  return { user: userContext, token, permissions };
 }
 
 function addHistory(db, user, type, detail, metadata = {}) {
@@ -422,6 +452,88 @@ async function handleApi(req, res, url) {
     return send(res, 202, { command: record });
   }
 
+  if (route === 'GET /api/ai/capabilities') {
+    const allowed = requireAuth(req, db, 'ai_chat');
+    if (allowed.error) return send(res, allowed.status, { error: allowed.error });
+    return send(res, 200, {
+      model: aiService?.model || '',
+      ollamaUrl: aiService?.ollamaUrl || '',
+      tools: aiService?.toolRegistry?.list() || []
+    });
+  }
+
+  if (route === 'GET /api/ai/history') {
+    const allowed = requireAuth(req, db, 'ai_chat');
+    if (allowed.error) return send(res, allowed.status, { error: allowed.error });
+    const sessionId = url.searchParams.get('sessionId') || 'default';
+    const history = aiService.listHistory(allowed.user.id, sessionId);
+    return send(res, 200, { history });
+  }
+
+  if (route === 'POST /api/ai/chat') {
+    const allowed = requireAuth(req, db, 'ai_chat');
+    if (allowed.error) return send(res, allowed.status, { error: allowed.error });
+
+    if (!checkRateLimit(req, 15, 60000)) {
+      return send(res, 429, { error: 'Demasiadas solicitudes al chat de IA. Límite de 15 peticiones por minuto.' });
+    }
+
+    const body = await parseBody(req);
+    if (!body.message) return send(res, 400, { error: 'El mensaje es requerido.' });
+
+    const sessionId = body.sessionId || 'default';
+    const stream = body.stream === true;
+
+    if (stream) {
+      res.writeHead(200, {
+        'Content-Type': 'text/event-stream; charset=utf-8',
+        'Cache-Control': 'no-cache, no-transform',
+        'Connection': 'keep-alive'
+      });
+
+      res.write(`event: ready\ndata: ${JSON.stringify({ ok: true })}\n\n`);
+
+      try {
+        const response = await aiService.chat({
+          user: allowed.user,
+          sessionId,
+          message: body.message,
+          model: body.model,
+          stream: true,
+          onChunk: (chunk) => {
+            res.write(`event: chunk\ndata: ${JSON.stringify({ text: chunk })}\n\n`);
+          }
+        });
+        res.write(`event: done\ndata: ${JSON.stringify({ history: response.history })}\n\n`);
+        res.end();
+
+        addHistory(db, allowed.user, 'ai_chat', `Chat IA (SSE stream): "${body.message.slice(0, 40)}..."`);
+        writeDb(db);
+      } catch (err) {
+        res.write(`event: error\ndata: ${JSON.stringify({ error: err.message || 'Error en streaming' })}\n\n`);
+        res.end();
+      }
+      return;
+    } else {
+      try {
+        const response = await aiService.chat({
+          user: allowed.user,
+          sessionId,
+          message: body.message,
+          model: body.model,
+          stream: false
+        });
+
+        addHistory(db, allowed.user, 'ai_chat', `Chat IA: "${body.message.slice(0, 40)}..."`);
+        writeDb(db);
+
+        return send(res, 200, response);
+      } catch (err) {
+        return send(res, err.status || 500, { error: err.message || 'Error en el servicio de IA' });
+      }
+    }
+  }
+
   if (route === 'GET /api/users') {
     const allowed = requireAuth(req, db, 'manage_users');
     if (allowed.error) return send(res, allowed.status, { error: allowed.error });
@@ -565,6 +677,90 @@ ensureDb();
 
 (async function start() {
   iotStore = await createIotStore({ dataDir: DATA_DIR });
+  
+  // Inicializar servicio de IA
+  aiService = await createAiService({ dataDir: DATA_DIR });
+
+  // Registrar resolvers de tools seguras
+  aiService.toolRegistry.register({
+    name: 'getDevices',
+    description: 'Obtiene la lista de todos los dispositivos IoT registrados y sus estados actuales.',
+    scope: 'devices:read',
+    schema: { type: 'object', properties: {}, additionalProperties: false },
+    handler: () => iotStore.listDevices()
+  });
+
+  aiService.toolRegistry.register({
+    name: 'getDevice',
+    description: 'Obtiene los detalles de configuración e información de un dispositivo IoT específico.',
+    scope: 'devices:read',
+    schema: {
+      type: 'object',
+      properties: {
+        deviceId: { type: 'string', minLength: 3, maxLength: 64 }
+      },
+      required: ['deviceId'],
+      additionalProperties: false
+    },
+    handler: (user, { deviceId }) => {
+      const dev = iotStore.getDevice(deviceId);
+      if (!dev) return { error: 'Dispositivo no encontrado.' };
+      return dev;
+    }
+  });
+
+  aiService.toolRegistry.register({
+    name: 'getTelemetry',
+    description: 'Obtiene las trazas de telemetría recientes para un dispositivo específico.',
+    scope: 'telemetry:read',
+    schema: {
+      type: 'object',
+      properties: {
+        deviceId: { type: 'string', minLength: 3, maxLength: 64 },
+        limit: { type: 'integer', minimum: 1, maximum: 500 }
+      },
+      required: ['deviceId'],
+      additionalProperties: false
+    },
+    handler: (user, { deviceId, limit }) => iotStore.listTelemetry(deviceId, limit || 50)
+  });
+
+  aiService.toolRegistry.register({
+    name: 'getAutomations',
+    description: 'Obtiene el listado de todas las automatizaciones y secuencias guardadas en la base de datos.',
+    scope: 'automations:read',
+    schema: { type: 'object', properties: {}, additionalProperties: false },
+    handler: () => {
+      const db = readDb();
+      return db.automations || [];
+    }
+  });
+
+  aiService.toolRegistry.register({
+    name: 'getUsers',
+    description: 'Obtiene la lista completa de usuarios registrados y sus roles en la plataforma. Requiere rol de Super Admin.',
+    scope: 'users:read',
+    schema: { type: 'object', properties: {}, additionalProperties: false },
+    handler: () => {
+      const db = readDb();
+      return db.users.map(publicUser);
+    }
+  });
+
+  aiService.toolRegistry.register({
+    name: 'getSystemStatus',
+    description: 'Obtiene el estado del sistema backend, uptime, puerto de escucha y estado del broker MQTT.',
+    scope: 'system:read',
+    schema: { type: 'object', properties: {}, additionalProperties: false },
+    handler: () => ({
+      status: 'online',
+      uptime: process.uptime(),
+      port: PORT,
+      mqttConnected: iotMqttClient?.connected || false,
+      timestamp: new Date().toISOString()
+    })
+  });
+
   startIotMqttBridge();
   setInterval(() => {
     const offlineIds = iotStore.markOfflineStaleDevices(HEARTBEAT_TIMEOUT_MS);
@@ -584,5 +780,6 @@ ensureDb();
 process.on('SIGINT', () => {
   if (iotMqttClient) iotMqttClient.end(true);
   if (iotStore) iotStore.close();
+  if (aiService) aiService.close();
   process.exit();
 });

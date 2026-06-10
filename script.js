@@ -30,7 +30,8 @@ const viewCopy = {
   mqtt: ['Explorador y monitor MQTT', 'Conexión, suscripción, publicación y trazas del broker.'],
   automations: ['Automatizaciones', 'Secuencias guardadas con ejecución y registro histórico.'],
   history: ['Historial', 'Eventos de usuario, MQTT, servos y automatizaciones.'],
-  users: ['Gestión de usuarios', 'Administración de cuentas, roles y permisos.']
+  users: ['Gestión de usuarios', 'Administración de cuentas, roles y permisos.'],
+  ai: ['Asistente TADASHY AI', 'Chatea con Mistral para consultar y analizar el estado de tu red IoT.']
 };
 
 const $ = (id) => document.getElementById(id);
@@ -138,8 +139,9 @@ function logout() {
 function switchView(view) {
   document.querySelectorAll('.view').forEach((el) => el.classList.toggle('active', el.id === `view-${view}`));
   document.querySelectorAll('.nav-btn').forEach((el) => el.classList.toggle('active', el.dataset.view === view));
-  $('view-title').textContent = viewCopy[view][0];
-  $('view-subtitle').textContent = viewCopy[view][1];
+  $('view-title').textContent = viewCopy[view] ? viewCopy[view][0] : 'Vista';
+  $('view-subtitle').textContent = viewCopy[view] ? viewCopy[view][1] : '';
+  if (view === 'ai') loadAiChat();
 }
 
 function buildCards() {
@@ -561,6 +563,132 @@ function hydrateMqttForm() {
   $('mqtt-pass').value = saved.password || '';
 }
 
+async function loadAiChat() {
+  if (!hasPermission('ai_chat')) return;
+  try {
+    const cap = await api('/ai/capabilities');
+    $('ai-info-model').textContent = cap.model || 'Desconocido';
+    $('ai-info-endpoint').textContent = cap.ollamaUrl || 'Desconocido';
+    $('ai-model-badge').innerHTML = `<i class="ti ti-brain"></i> ${cap.model || 'Mistral'}`;
+
+    $('ai-tools-list').innerHTML = cap.tools.map(t => `
+      <div class="cap-tool-card">
+        <div class="cap-tool-head">
+          <span class="tool-name"><i class="ti ti-settings-automation"></i> ${t.name}</span>
+          <span class="tool-scope"><i class="ti ti-shield"></i> ${t.scope || 'público'}</span>
+        </div>
+        <p class="tool-desc">${t.description}</p>
+      </div>
+    `).join('');
+
+    const histRes = await api('/ai/history?sessionId=default');
+    const container = $('ai-chat-messages');
+    container.innerHTML = '';
+    
+    if (!histRes.history || histRes.history.length === 0) {
+      appendAiChatMessage('assistant', 'Hola, soy el Asistente TADASHY AI. ¿En qué puedo ayudarte con el sistema IoT hoy?');
+    } else {
+      histRes.history.forEach(msg => {
+        if (msg.role === 'user' || msg.role === 'assistant') {
+          if (msg.role === 'assistant' && !msg.content && msg.metadata?.tool_calls) {
+            return;
+          }
+          appendAiChatMessage(msg.role, msg.content);
+        }
+      });
+    }
+  } catch (err) {
+    console.error("Error al cargar capabilities de IA:", err);
+  }
+}
+
+async function sendAiMessage(messageText) {
+  const messagesContainer = $('ai-chat-messages');
+  appendAiChatMessage('user', messageText);
+  
+  const assistantBubble = appendAiChatMessage('assistant', '');
+  const loadingEl = document.createElement('span');
+  loadingEl.className = 'ai-loading-dots';
+  loadingEl.innerHTML = '<span>.</span><span>.</span><span>.</span>';
+  assistantBubble.appendChild(loadingEl);
+  messagesContainer.scrollTop = messagesContainer.scrollHeight;
+
+  try {
+    const res = await fetch(API + '/ai/chat', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${auth.token}`
+      },
+      body: JSON.stringify({ message: messageText, stream: true, sessionId: 'default' })
+    });
+
+    if (!res.ok) {
+      const errData = await res.json().catch(() => ({}));
+      throw new Error(errData.error || 'Error en el chat de IA');
+    }
+
+    loadingEl.remove();
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder('utf-8');
+    let buffer = '';
+    let accumulatedText = '';
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop();
+
+      for (const line of lines) {
+        if (!line.trim()) continue;
+        if (line.startsWith('data: ')) {
+          try {
+            const data = JSON.parse(line.slice(6));
+            if (data.text) {
+              accumulatedText += data.text;
+              assistantBubble.textContent = accumulatedText;
+              messagesContainer.scrollTop = messagesContainer.scrollHeight;
+            }
+            if (data.error) {
+              assistantBubble.textContent = `Error: ${data.error}`;
+              assistantBubble.classList.add('bubble-err');
+            }
+          } catch (err) {
+          }
+        }
+      }
+    }
+  } catch (err) {
+    loadingEl.remove();
+    assistantBubble.textContent = `Error: ${err.message}`;
+    assistantBubble.classList.add('bubble-err');
+  }
+}
+
+function appendAiChatMessage(role, content) {
+  const container = $('ai-chat-messages');
+  const bubble = document.createElement('div');
+  bubble.className = `chat-bubble bubble-${role}`;
+  
+  const avatar = document.createElement('div');
+  avatar.className = `chat-avatar avatar-${role}`;
+  avatar.innerHTML = role === 'user' ? '<i class="ti ti-user"></i>' : '<i class="ti ti-brain"></i>';
+  
+  const body = document.createElement('div');
+  body.className = 'chat-body';
+  body.textContent = content;
+  
+  bubble.appendChild(avatar);
+  bubble.appendChild(body);
+  container.appendChild(bubble);
+  container.scrollTop = container.scrollHeight;
+  return body;
+}
+
 function autoConnectMqtt() {
   if (!auth || !hasPermission('mqtt_status') || client) return;
   const saved = JSON.parse(localStorage.getItem('tadashy_mqtt') || 'null');
@@ -592,6 +720,14 @@ function bindEvents() {
   $('user-form').addEventListener('submit', createUser);
   $('refresh-history').addEventListener('click', loadHistory);
   $('discover-devices-btn').addEventListener('click', discoverDevices);
+  $('ai-chat-form').addEventListener('submit', (event) => {
+    event.preventDefault();
+    const input = $('ai-chat-input');
+    const txt = input.value.trim();
+    if (!txt) return;
+    input.value = '';
+    sendAiMessage(txt);
+  });
 
   $('nav-tabs').addEventListener('click', (event) => {
     const button = event.target.closest('.nav-btn');

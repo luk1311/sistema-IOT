@@ -51,6 +51,7 @@
         <button class="nav-btn" data-view="automations" data-permission="run_automations"><i class="ti ti-player-play"></i><span>Automatizaciones</span></button>
         <button class="nav-btn" data-view="history" data-permission="view_history"><i class="ti ti-history"></i><span>Historial</span></button>
         <button class="nav-btn" data-view="users" data-permission="manage_users"><i class="ti ti-users"></i><span>Usuarios</span></button>
+        <button class="nav-btn" data-view="ai" data-permission="ai_chat"><i class="ti ti-message-chatbot"></i><span>Asistente IA</span></button>
       </nav>
       <div class="session-box">
         <span id="session-name">Sin sesión</span>
@@ -200,6 +201,41 @@
           <div class="panel">
             <p class="section-label">Usuarios registrados</p>
             <div class="list" id="user-list"></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="view" id="view-ai">
+        <div class="split-grid ai-layout">
+          <div class="panel chat-panel">
+            <div class="panel-header">
+              <p class="section-label">Chat con Asistente TADASHY AI</p>
+              <span id="ai-model-badge" class="badge badge-ok"><i class="ti ti-brain"></i> Mistral</span>
+            </div>
+            <div id="ai-chat-messages" class="chat-messages"></div>
+            <form id="ai-chat-form" class="chat-input-row">
+              <input id="ai-chat-input" placeholder="Pregunta sobre dispositivos, telemetría o usuarios..." autocomplete="off" />
+              <button class="primary-btn" type="submit"><i class="ti ti-send"></i></button>
+            </form>
+          </div>
+          <div class="panel capabilities-panel">
+            <div class="panel-header">
+              <p class="section-label">Capacidades y Seguridad</p>
+            </div>
+            <div class="capabilities-content">
+              <div class="cap-item">
+                <span>Modelo de Lenguaje:</span>
+                <strong id="ai-info-model">Cargando...</strong>
+              </div>
+              <div class="cap-item">
+                <span>Endpoint de Servicio:</span>
+                <code id="ai-info-endpoint">Cargando...</code>
+              </div>
+              <div class="cap-tools-section">
+                <span>Catálogo de Tools Habilitadas:</span>
+                <div id="ai-tools-list" class="tools-list"></div>
+              </div>
+            </div>
           </div>
         </div>
       </section>
