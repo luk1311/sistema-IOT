@@ -522,10 +522,14 @@ async function createAiService({
       rawHistory.forEach(item => {
         const msg = { role: item.role, content: item.content };
         if (item.role === 'assistant' && item.metadata?.tool_calls) {
-          msg.tool_calls = item.metadata.tool_calls;
+          msg.tool_calls = item.metadata.tool_calls.map(tc => {
+            if (!tc.id) tc.id = item.metadata.tool_call_id || crypto.randomUUID();
+            return tc;
+          });
         }
         if (item.role === 'tool') {
-          msg.name = item.metadata?.tool_name;
+          msg.name = item.metadata?.tool_name || 'unknown_tool';
+          msg.tool_call_id = item.metadata?.tool_call_id || 'legacy_tool_call';
         }
         formattedMessages.push(msg);
       });
@@ -602,8 +606,13 @@ async function createAiService({
             result = { success: false, error: err.message || 'Error de ejecución en la herramienta.' };
           }
 
+          // Ensure tool_call_id exists (Groq/OpenAI strict requirement)
+          const toolCallId = toolCall.id || crypto.randomUUID();
+          toolCall.id = toolCallId; // Backfill if Ollama didn't provide one
+
           addMessage(userId, sessionId, 'tool', JSON.stringify(result), {
             tool_name: toolName,
+            tool_call_id: toolCallId,
             username: user.username,
             correlationId: cId
           }, selectedModel);
