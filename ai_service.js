@@ -391,29 +391,45 @@ async function createAiService({
     }));
 
     try {
+      const isGroq = Boolean(process.env.GROQ_API_KEY);
+      // Map local model names to Groq models
+      let activeModel = requestModel;
+      if (isGroq && requestModel === 'mistral') {
+        activeModel = 'mixtral-8x7b-32768';
+      }
+
       const payload = {
-        model: requestModel,
+        model: activeModel,
         messages,
-        stream,
-        options: {
-          temperature: 0.2
-        }
+        stream
       };
+
+      if (isGroq) {
+        payload.temperature = 0.2;
+      } else {
+        payload.options = { temperature: 0.2 };
+      }
 
       if (toolsSchema.length > 0) {
         payload.tools = toolsSchema;
+        if (isGroq) payload.tool_choice = 'auto';
       }
 
-      const response = await fetch(`${ollamaUrl.replace(/\/$/, '')}/api/chat`, {
+      const apiUrl = isGroq ? 'https://api.groq.com/openai/v1/chat/completions' : `${ollamaUrl.replace(/\/$/, '')}/api/chat`;
+      const headers = { 'Content-Type': 'application/json' };
+      if (isGroq) headers['Authorization'] = `Bearer ${process.env.GROQ_API_KEY}`;
+
+      const response = await fetch(apiUrl, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         body: JSON.stringify(payload),
         signal: controller.signal
       });
 
       if (!response.ok) {
-        const error = new Error('Ollama HTTP error');
-        error.code = 'OLLAMA_HTTP';
+        const errorText = await response.text().catch(() => '');
+        const error = new Error(`LLM HTTP error: ${response.status} - ${errorText}`);
+        error.code = 'LLM_HTTP';
         error.status = response.status;
         throw error;
       }
@@ -431,21 +447,38 @@ async function createAiService({
           const lines = buffer.split('\n');
           buffer = lines.pop();
 
-          for (const line of lines) {
-            if (!line.trim()) continue;
-            try {
-              const chunk = JSON.parse(line);
-              if (chunk?.message?.content) {
-                onChunk(chunk.message.content);
+          for (let line of lines) {
+            line = line.trim();
+            if (!line) continue;
+            
+            if (isGroq) {
+              if (line === 'data: [DONE]') continue;
+              if (line.startsWith('data: ')) {
+                try {
+                  const chunk = JSON.parse(line.slice(6));
+                  if (chunk?.choices?.[0]?.delta?.content) {
+                    onChunk(chunk.choices[0].delta.content);
+                  }
+                } catch (err) {}
               }
-            } catch (err) {
+            } else {
+              try {
+                const chunk = JSON.parse(line);
+                if (chunk?.message?.content) {
+                  onChunk(chunk.message.content);
+                }
+              } catch (err) {}
             }
           }
         }
         return '';
       } else {
         const data = await response.json();
-        return data?.message || { role: 'assistant', content: '' };
+        if (isGroq) {
+          return data?.choices?.[0]?.message || { role: 'assistant', content: '' };
+        } else {
+          return data?.message || { role: 'assistant', content: '' };
+        }
       }
     } finally {
       clearTimeout(timer);
