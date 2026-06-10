@@ -421,9 +421,21 @@ function requireEventAuth(req, db, permission) {
   return { user, token, permissions };
 }
 
+const deviceStateCache = new Map();
+
 function handleIotMqttMessage(topic, payloadBuffer) {
   if (!iotStore) return;
   const payloadText = payloadBuffer.toString();
+
+  // Filtro Anti-Saturación: Ignorar payloads idénticos en el mismo topic en un rango de 30s
+  const cacheKey = `${topic}::${payloadText}`;
+  const now = Date.now();
+  if (now - (deviceStateCache.get(cacheKey) || 0) < 30000) {
+    return;
+  }
+  deviceStateCache.set(cacheKey, now);
+  if (deviceStateCache.size > 2000) deviceStateCache.clear();
+
   const match = topic.match(/^devices\/([^/]+)\/(status|telemetry|config)$/);
   if (!match) return;
 
@@ -543,6 +555,23 @@ async function handleApi(req, res, url) {
     const allowed = requireAuth(req, db, 'view_dashboard');
     if (allowed.error) return send(res, allowed.status, { error: allowed.error });
     return send(res, 200, { devices: iotStore.listDevices() });
+  }
+
+  if (route === 'POST /api/mqtt/publish') {
+    const allowed = requireAuth(req, db, 'mqtt_publish');
+    if (allowed.error) return send(res, allowed.status, { error: allowed.error });
+    const body = await parseBody(req);
+    if (!body.topic || typeof body.payload === 'undefined') {
+      return send(res, 400, { error: 'Falta topic o payload' });
+    }
+    if (iotMqttClient?.connected) {
+      iotMqttClient.publish(body.topic, String(body.payload));
+      addHistory(db, allowed.user, 'mqtt_publish', `Publicado en ${body.topic} desde backend`);
+      writeDb(db);
+      return send(res, 200, { success: true });
+    } else {
+      return send(res, 503, { error: 'Broker MQTT backend desconectado' });
+    }
   }
 
   if (route === 'POST /api/devices/discover') {

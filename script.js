@@ -30,12 +30,12 @@ let voiceSessionId = localStorage.getItem('tadashy_voice_session') || `voice-${D
 
 const viewCopy = {
   dashboard: ['Dashboard IoT', 'Estado en tiempo real del sistema y del broker MQTT.'],
-  robot: ['Centro de control del brazo', 'Control manual, modo automático y acceso a visión artificial.'],
+  devices: ['Inventario de Dispositivos', 'Monitoreo y control de todo el hardware registrado.'],
   mqtt: ['Explorador y monitor MQTT', 'Conexión, suscripción, publicación y trazas del broker.'],
   automations: ['Automatizaciones', 'Secuencias guardadas con ejecución y registro histórico.'],
   history: ['Historial', 'Eventos de usuario, MQTT, servos y automatizaciones.'],
   users: ['Gestión de usuarios', 'Administración de cuentas, roles y permisos.'],
-  ai: ['Asistente TADASHY AI', 'Chatea con Mistral para consultar y analizar el estado de tu red IoT.']
+  ai: ['Asistente TADASHY AI', 'Chatea con la Inteligencia Artificial para consultar y analizar el estado de tu red IoT.']
 };
 
 const $ = (id) => document.getElementById(id);
@@ -59,11 +59,25 @@ function roleLabel(role) {
   return roleLabels[role] || role;
 }
 
+let lastLogMsg = '';
+let lastLogCount = 1;
+let lastLogElement = null;
+
 function addLog(msg, tipo = 'inf') {
+  if (msg === lastLogMsg && lastLogElement) {
+    lastLogCount++;
+    lastLogElement.innerHTML = `<span class="log-ts">${new Date().toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span><span class="log-${tipo}">${escapeHtml(msg)} <span style="opacity:0.6">(${lastLogCount}x)</span></span>`;
+    return;
+  }
+  
+  lastLogMsg = msg;
+  lastLogCount = 1;
   const ts = new Date().toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
   const row = document.createElement('div');
   row.className = 'log-row';
   row.innerHTML = `<span class="log-ts">${ts}</span><span class="log-${tipo}">${escapeHtml(msg)}</span>`;
+  lastLogElement = row;
+  
   $('log').prepend(row);
   while ($('log').children.length > 80) $('log').removeChild($('log').lastChild);
 }
@@ -194,20 +208,35 @@ function updateAngle(i, val) {
   $( `dash-${servoKeys[i - 1]}` ).textContent = `${v}°`;
 }
 
-function publish(topic, payload) {
+async function publish(topic, payload) {
   if (!hasPermission('mqtt_publish')) {
     addLog('No tienes permiso para publicar MQTT', 'err');
     return false;
   }
-  if (!client?.connected) {
-    addLog('MQTT no conectado', 'err');
-    return false;
+  
+  if (client && client.connected) {
+    client.publish(topic, String(payload));
+    pubTotal++;
+    $('pub-total').textContent = pubTotal;
+    saveHistory('mqtt_publish', `Publicado en ${topic}`, { topic, payload });
+    return true;
   }
-  client.publish(topic, String(payload));
-  pubTotal++;
-  $('pub-total').textContent = pubTotal;
-  saveHistory('mqtt_publish', `Publicado en ${topic}`, { topic, payload });
-  return true;
+
+  // Si no es super_admin con conexión directa, pasar por el backend
+  try {
+    const res = await api('/mqtt/publish', {
+      method: 'POST',
+      body: JSON.stringify({ topic, payload: String(payload) })
+    });
+    if (res.success) {
+      pubTotal++;
+      $('pub-total').textContent = pubTotal;
+      return true;
+    }
+  } catch (err) {
+    addLog(`Error publicando: ${err.message}`, 'err');
+  }
+  return false;
 }
 
 function mover(servo, valor, force = false) {
@@ -337,10 +366,25 @@ function onMqttMessage(topic, payloadBuffer) {
   }
 }
 
+let lastMqttTopic = '';
+let lastMqttPayload = '';
+let lastMqttCount = 1;
+let lastMqttRow = null;
+
 function addMqttRow(topic, payload) {
+  if (topic === lastMqttTopic && payload === lastMqttPayload && lastMqttRow) {
+    lastMqttCount++;
+    lastMqttRow.innerHTML = `<span class="row-meta">${new Date().toLocaleTimeString('es-CO')}</span><span class="topic">${escapeHtml(topic)}</span><span class="payload">${escapeHtml(payload)} <span style="opacity:0.6">(${lastMqttCount}x)</span></span>`;
+    return;
+  }
+  
+  lastMqttTopic = topic;
+  lastMqttPayload = payload;
+  lastMqttCount = 1;
   const row = document.createElement('div');
   row.className = 'message-row';
   row.innerHTML = `<span class="row-meta">${new Date().toLocaleTimeString('es-CO')}</span><span class="topic">${escapeHtml(topic)}</span><span class="payload">${escapeHtml(payload)}</span>`;
+  lastMqttRow = row;
   $('mqtt-messages').prepend(row);
   while ($('mqtt-messages').children.length > 80) $('mqtt-messages').removeChild($('mqtt-messages').lastChild);
 }
@@ -887,6 +931,8 @@ function createConfirmationCard(container, token, action) {
 
 function autoConnectMqtt() {
   if (!auth || !hasPermission('mqtt_status') || client) return;
+  if (auth.user.role !== 'super_admin') return; // Bloquear acceso directo a roles menores
+  
   const saved = JSON.parse(localStorage.getItem('tadashy_mqtt') || 'null');
   if (!saved?.host || !saved?.port || !saved?.username || !saved?.password) {
     addLog('MQTT listo: faltan credenciales guardadas', 'inf');
@@ -953,7 +999,22 @@ function bindEvents() {
 
     const toggle = event.target.closest('[data-toggle-user]');
     if (toggle) toggleUser(toggle.dataset.toggleUser);
+
+    const deviceCard = event.target.closest('.device-card');
+    if (deviceCard) {
+      const deviceId = deviceCard.dataset.deviceId || '';
+      if (deviceId.toLowerCase().includes('brazo')) {
+        $('robot-modal').style.display = 'flex';
+      }
+    }
   });
+
+  const closeRobotBtn = $('close-robot-modal');
+  if (closeRobotBtn) {
+    closeRobotBtn.addEventListener('click', () => {
+      $('robot-modal').style.display = 'none';
+    });
+  }
 }
 
 bindEvents();
