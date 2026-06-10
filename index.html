@@ -1,489 +1,333 @@
 <!DOCTYPE html>
-<html class="dark" lang="es">
+<html lang="es">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>TADASHY - Command Center</title>
-  
-  <link rel="icon" href="favicon.ico" />
-  <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
-  <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet" />
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Outfit:wght@600;700&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/tabler-icons.min.css" />
-  <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
+  <title>TADASHY V3 | IoT Command Center</title>
   <link rel="stylesheet" href="main.css" />
-
-  <script id="tailwind-config">
-    tailwind.config = {
-      darkMode: "class",
-      theme: {
-        extend: {
-          "colors": {
-            "on-secondary-container": "#003b24",
-            "tertiary": "#fabd32",
-            "on-primary-container": "#24008d",
-            "surface-container": "#1f1f25",
-            "tertiary-fixed": "#ffdea4",
-            "surface-variant": "#35343a",
-            "surface-container-lowest": "#0e0e13",
-            "surface-bright": "#39383e",
-            "on-error": "#690005",
-            "inverse-on-surface": "#303036",
-            "on-surface": "#e4e1e9",
-            "surface-dim": "#131318",
-            "on-surface-variant": "#c8c4d7",
-            "primary-fixed-dim": "#c7bfff",
-            "outline": "#928ea0",
-            "tertiary-fixed-dim": "#fabd32",
-            "secondary-fixed": "#71fcb6",
-            "on-primary-fixed": "#170065",
-            "secondary-container": "#00b173",
-            "on-tertiary-fixed": "#261900",
-            "on-tertiary-container": "#382700",
-            "surface-container-high": "#2a292f",
-            "background": "#131318",
-            "inverse-primary": "#5944da",
-            "primary-fixed": "#e4dfff",
-            "inverse-surface": "#e4e1e9",
-            "on-secondary-fixed-variant": "#005233",
-            "on-background": "#e4e1e9",
-            "on-secondary": "#003822",
-            "on-secondary-fixed": "#002112",
-            "tertiary-container": "#ba8800",
-            "primary": "#c7bfff",
-            "surface-container-low": "#1b1b20",
-            "secondary": "#51df9c",
-            "on-primary": "#2a009f",
-            "on-tertiary-fixed-variant": "#5d4200",
-            "secondary-fixed-dim": "#51df9c",
-            "error": "#ffb4ab",
-            "surface-container-highest": "#35343a",
-            "primary-container": "#8d7fff",
-            "on-error-container": "#ffdad6",
-            "on-tertiary": "#412d00",
-            "outline-variant": "#474555",
-            "on-primary-fixed-variant": "#4024c2",
-            "surface-tint": "#c7bfff",
-            "error-container": "#93000a",
-            "surface": "#131318"
-          },
-          "borderRadius": {
-            "DEFAULT": "0.25rem",
-            "lg": "0.5rem",
-            "xl": "0.75rem",
-            "full": "9999px"
-          },
-          "spacing": {
-            "sm": "0.5rem",
-            "margin-desktop": "2.5rem",
-            "xs": "0.25rem",
-            "xl": "2.5rem",
-            "lg": "1.5rem",
-            "gutter": "1.5rem",
-            "md": "1rem",
-            "margin-mobile": "1rem"
-          },
-          "fontFamily": {
-            "body-md": ["Inter"],
-            "body-lg": ["Inter"],
-            "label-caps": ["Inter"],
-            "headline-lg-mobile": ["Outfit"],
-            "body-sm": ["Inter"],
-            "headline-md": ["Outfit"],
-            "headline-xl": ["Outfit"],
-            "headline-lg": ["Outfit"],
-            "data-display": ["Inter"]
-          },
-          "fontSize": {
-            "body-md": ["16px", { "lineHeight": "24px", "fontWeight": "400" }],
-            "body-lg": ["18px", { "lineHeight": "28px", "fontWeight": "400" }],
-            "label-caps": ["12px", { "lineHeight": "16px", "letterSpacing": "0.08em", "fontWeight": "600" }],
-            "headline-lg-mobile": ["24px", { "lineHeight": "32px", "fontWeight": "600" }],
-            "body-sm": ["14px", { "lineHeight": "20px", "fontWeight": "400" }],
-            "headline-md": ["20px", { "lineHeight": "28px", "fontWeight": "600" }],
-            "headline-xl": ["48px", { "lineHeight": "56px", "letterSpacing": "-0.02em", "fontWeight": "700" }],
-            "headline-lg": ["32px", { "lineHeight": "40px", "letterSpacing": "-0.01em", "fontWeight": "600" }],
-            "data-display": ["24px", { "lineHeight": "32px", "letterSpacing": "-0.01em", "fontWeight": "500" }]
-          }
-        }
-      }
-    }
-  </script>
+  <link href="https://fonts.googleapis.com/icon?family=Material+Symbols+Outlined" rel="stylesheet" />
 </head>
-<body class="flex h-screen overflow-hidden font-body-md text-body-md bg-background text-on-surface">
+<body>
+  <!-- Atmosphere Background Effects -->
+  <div class="atmosphere">
+    <div class="atmosphere-glow-1"></div>
+    <div class="atmosphere-glow-2"></div>
+  </div>
 
   <!-- Login Overlay -->
-  <div id="login-overlay" class="absolute inset-0 z-[100] flex flex-col items-center justify-center bg-background/90 backdrop-blur-xl">
-    <form class="glass-panel p-xl rounded-xl w-full max-w-md flex flex-col gap-lg shadow-[0_0_40px_rgba(199,191,255,0.15)] glow-hover border border-white/10" id="login-form">
-      <div class="flex flex-col items-center text-center gap-xs mb-md">
-        <span class="material-symbols-outlined text-[64px] text-primary drop-shadow-[0_0_15px_rgba(199,191,255,0.6)]">shield_lock</span>
-        <h1 class="font-headline-xl text-primary drop-shadow-[0_0_10px_rgba(199,191,255,0.5)]">TADASHY</h1>
-        <p class="font-label-caps text-on-surface-variant tracking-widest">SYSTEM ACCESS</p>
+  <div id="login-overlay">
+    <form id="login-form" class="glass-panel login-card">
+      <div class="login-title">
+        <span class="material-symbols-outlined">hub</span>
+        <span>TADASHY V3</span>
       </div>
-      <div class="flex flex-col gap-sm">
-        <label class="font-label-caps text-primary" for="inp-user">Usuario</label>
-        <input type="text" id="inp-user" class="bg-surface-variant/50 border border-white/10 text-on-surface font-body-md px-md py-sm rounded-lg focus:outline-none focus:border-primary transition-all placeholder-on-surface-variant" placeholder="Ingrese su usuario" autocomplete="username" />
-      </div>
-      <div class="flex flex-col gap-sm">
-        <label class="font-label-caps text-primary" for="inp-pass">Contraseña</label>
-        <input type="password" id="inp-pass" class="bg-surface-variant/50 border border-white/10 text-on-surface font-body-md px-md py-sm rounded-lg focus:outline-none focus:border-primary transition-all placeholder-on-surface-variant" placeholder="Ingrese su contraseña" autocomplete="current-password" />
-      </div>
-      <span class="text-error font-body-sm text-center min-h-[20px]" id="login-err"></span>
-      <button class="w-full py-md rounded-lg bg-gradient-to-r from-primary to-primary-container text-on-primary font-headline-md hover:shadow-[0_0_20px_rgba(199,191,255,0.6)] transition-all duration-300 flex justify-center items-center gap-sm mt-sm" type="submit">
-        <span class="material-symbols-outlined">login</span> Entrar
+      <p class="font-outfit" style="color: var(--text-muted); font-size: 14px;">Identificación Requerida</p>
+      
+      <input type="text" id="inp-user" class="input-futuristic" placeholder="Operador ID" autocomplete="username" />
+      <input type="password" id="inp-pass" class="input-futuristic" placeholder="Código de Acceso" autocomplete="current-password" />
+      
+      <button type="submit" class="btn btn-primary" style="justify-content: center; margin-top: 10px; height: 44px;">
+        <span class="material-symbols-outlined">login</span> AUTENTICAR
       </button>
+      
+      <div id="login-err"></div>
     </form>
   </div>
 
-  <!-- App Shell -->
-  <div class="app-shell flex h-screen w-full relative" id="main">
+  <!-- Main Shell -->
+  <div id="main" class="app-layout" style="display: none;">
     
-    <!-- SideNavBar -->
-    <nav class="fixed left-0 h-full w-72 bg-surface/60 backdrop-blur-xl border-r border-white/10 shadow-[0_0_20px_rgba(0,0,0,0.5)] flex flex-col py-lg px-md z-40 hidden md:flex" id="sidebar">
-      <div class="mb-xl flex flex-col items-center">
-        <h1 class="font-headline-xl text-headline-xl tracking-tighter text-primary drop-shadow-[0_0_10px_rgba(199,191,255,0.5)]">TADASHY</h1>
-        <p class="font-label-caps text-label-caps text-on-surface-variant mt-sm">AI Core v2.4</p>
+    <!-- Top Navigation Bar -->
+    <header class="topbar">
+      <div class="brand">
+        <span class="material-symbols-outlined logo-icon">psychology</span>
+        <h1>TADASHY</h1>
+      </div>
+      <div class="top-status">
+        <span id="api-badge" class="badge badge-offline"><div class="status-pulse"></div> API Offline</span>
+        <span id="conn-badge" class="badge badge-offline"><div class="status-pulse"></div> MQTT Offline</span>
+        
+        <div class="operator-profile">
+          <span id="session-name" class="operator-name">USER</span>
+          <span class="operator-role">System Operator</span>
+        </div>
+        <button id="logout-btn" class="btn btn-danger" style="padding: 6px 10px;">
+          <span class="material-symbols-outlined">logout</span>
+        </button>
+      </div>
+    </header>
+
+    <!-- Sidebar Navigation -->
+    <nav class="sidebar">
+      <div id="nav-tabs" style="display: flex; flex-direction: column; gap: 4px; padding: 0 16px;">
+        <button class="nav-btn active" data-view="dashboard" data-permission="view_dashboard">
+          <span class="material-symbols-outlined">dashboard</span> Dashboard
+        </button>
+        <button class="nav-btn" data-view="devices" data-permission="view_dashboard">
+          <span class="material-symbols-outlined">memory</span> Dispositivos
+        </button>
+        <button class="nav-btn" data-view="ai" data-permission="ai_chat">
+          <span class="material-symbols-outlined">auto_awesome</span> Asistente IA
+        </button>
+        <button class="nav-btn" data-view="mqtt" data-permission="mqtt_status">
+          <span class="material-symbols-outlined">terminal</span> Consola MQTT
+        </button>
+        <button class="nav-btn" data-view="automations" data-permission="manage_automations">
+          <span class="material-symbols-outlined">account_tree</span> Rutinas
+        </button>
+        <button class="nav-btn" data-view="history" data-permission="view_history">
+          <span class="material-symbols-outlined">history</span> Registros
+        </button>
+        <button class="nav-btn" data-view="users" data-permission="manage_users">
+          <span class="material-symbols-outlined">group</span> Usuarios
+        </button>
       </div>
       
-      <ul class="flex-1 space-y-sm overflow-y-auto" id="nav-tabs">
-        <li>
-          <button class="nav-btn w-full flex items-center p-sm rounded-lg text-on-surface-variant hover:text-on-surface hover:bg-white/5 transition-all duration-300" data-view="dashboard">
-            <span class="material-symbols-outlined mr-md">dashboard</span>
-            <span class="font-label-caps text-label-caps">Command Center</span>
-          </button>
-        </li>
-        <li>
-          <button class="nav-btn w-full flex items-center p-sm rounded-lg text-on-surface-variant hover:text-on-surface hover:bg-white/5 transition-all duration-300" data-view="devices" data-permission="manage_devices">
-            <span class="material-symbols-outlined mr-md">router</span>
-            <span class="font-label-caps text-label-caps">Device Grid</span>
-          </button>
-        </li>
-        <li>
-          <button class="nav-btn w-full flex items-center p-sm rounded-lg text-on-surface-variant hover:text-on-surface hover:bg-white/5 transition-all duration-300" data-view="mqtt" data-permission="mqtt_monitor">
-            <span class="material-symbols-outlined mr-md">hub</span>
-            <span class="font-label-caps text-label-caps">Network Mesh</span>
-          </button>
-        </li>
-        <li>
-          <button class="nav-btn w-full flex items-center p-sm rounded-lg text-on-surface-variant hover:text-on-surface hover:bg-white/5 transition-all duration-300" data-view="automations" data-permission="run_automations">
-            <span class="material-symbols-outlined mr-md">settings_input_component</span>
-            <span class="font-label-caps text-label-caps">Automation</span>
-          </button>
-        </li>
-        <li>
-          <button class="nav-btn w-full flex items-center p-sm rounded-lg text-on-surface-variant hover:text-on-surface hover:bg-white/5 transition-all duration-300" data-view="history" data-permission="view_history">
-            <span class="material-symbols-outlined mr-md">analytics</span>
-            <span class="font-label-caps text-label-caps">Diagnostics</span>
-          </button>
-        </li>
-        <li>
-          <button class="nav-btn w-full flex items-center p-sm rounded-lg text-on-surface-variant hover:text-on-surface hover:bg-white/5 transition-all duration-300" data-view="users" data-permission="manage_users">
-            <span class="material-symbols-outlined mr-md">verified_user</span>
-            <span class="font-label-caps text-label-caps">Security</span>
-          </button>
-        </li>
-        <li>
-          <button class="nav-btn w-full flex items-center p-sm rounded-lg text-on-surface-variant hover:text-on-surface hover:bg-white/5 transition-all duration-300" data-view="ai" data-permission="ai_chat">
-            <span class="material-symbols-outlined mr-md">psychology</span>
-            <span class="font-label-caps text-label-caps">AI Insights</span>
-          </button>
-        </li>
-      </ul>
-      
-      <div class="mt-auto pt-lg border-t border-white/10 space-y-sm flex flex-col items-center">
-        <span class="text-on-surface font-body-sm mb-xs" id="session-name">Sin sesión</span>
-        <button class="w-full flex items-center justify-center p-sm rounded-lg text-error hover:bg-error/10 transition-all duration-300 font-label-caps" id="logout-btn">
-          <span class="material-symbols-outlined mr-sm">logout</span> Salir
-        </button>
+      <div style="margin-top: auto; padding: 24px; border-top: 1px solid var(--border-glass);">
+        <p style="font-size: 10px; color: var(--text-muted); letter-spacing: 0.1em; margin-bottom: 8px;">NETWORK LOAD</p>
+        <div style="height: 4px; width: 100%; background: rgba(255,255,255,0.1); border-radius: 4px; overflow: hidden;">
+          <div style="height: 100%; width: 45%; background: var(--accent-online); box-shadow: 0 0 10px var(--accent-online);"></div>
+        </div>
+        <p style="font-size: 10px; color: var(--accent-online); margin-top: 6px; text-align: right;">45% Estable</p>
       </div>
     </nav>
 
-    <!-- Main Content Area -->
-    <div class="flex-1 flex flex-col md:ml-72 relative w-full h-full">
-      <!-- TopAppBar -->
-      <header class="flex justify-between items-center h-16 px-xl bg-surface/40 backdrop-blur-md border-b border-white/5 z-30">
-        <div class="flex items-center flex-1 gap-md">
-          <h2 class="font-headline-md text-headline-md text-primary font-bold hidden md:block" id="view-title">Command Center</h2>
-          <p class="text-on-surface-variant font-body-sm hidden lg:block" id="view-subtitle">Estado en tiempo real del sistema</p>
+    <!-- Main Views Container -->
+    <main class="main-content">
+      <div class="section-header">
+        <div>
+          <h2 id="view-title" class="section-title">Vista</h2>
+          <p id="view-subtitle" class="section-subtitle">Descripción de la vista</p>
         </div>
-        
-        <div class="flex items-center space-x-md">
-          <span id="api-badge" class="px-sm py-xs rounded bg-surface-container font-label-caps text-[10px] text-secondary border border-secondary/30 hidden sm:flex items-center gap-xs"><span class="w-2 h-2 rounded-full bg-secondary animate-pulse"></span> Backend local</span>
-          <span id="conn-badge" class="px-sm py-xs rounded bg-surface-container font-label-caps text-[10px] text-error border border-error/30 hidden sm:flex items-center gap-xs"><span class="material-symbols-outlined text-[14px]">wifi_off</span> MQTT Off</span>
-          <span id="device-badge" class="px-sm py-xs rounded bg-surface-container font-label-caps text-[10px] text-tertiary border border-tertiary/30 hidden sm:flex items-center gap-xs"><span class="material-symbols-outlined text-[14px]">memory</span> ESP32 Off</span>
-          
-          <img alt="Admin" class="w-8 h-8 rounded-full border border-primary/50 cursor-pointer hover:scale-105 transition-transform duration-300" src="https://lh3.googleusercontent.com/aida-public/AB6AXuCf-dC3odNPeGd_q7DLdGlb8RmspU7xj3jH6txJai2qmmbwdS9QRcDtJaG5Dl-mDnwujBFkKQpMgfaYP4Dwtl7GSCs-OeSmZv76fBARFxzgSA2lHmd4rTHuCxjL0tTGmMXx1oQIge6f4tlq3ZwAzOGclzI_ynRJ6eIwGtzxBVcTiA7LCX1OpXAnccZ_pPUx7_S23s-EHVLUM8Tg7JihtpXW97VNGi6PTqI1AOp-1IRPCaeQZIDk0ojZTVuNJOv0x1BmjGIKlLbIpM0" />
+        <div>
+           <!-- Reserved for view-specific actions if needed -->
         </div>
-      </header>
+      </div>
 
-      <!-- Dashboard Canvas (Views Container) -->
-      <main class="flex-1 overflow-y-auto p-margin-mobile md:p-margin-desktop relative">
-        
-        <!-- Decorative Background Element -->
-        <div class="absolute inset-0 pointer-events-none overflow-hidden z-[-1]">
-          <div class="absolute top-1/4 left-1/4 w-96 h-96 bg-primary/5 rounded-full blur-[100px]"></div>
-          <div class="absolute bottom-1/4 right-1/4 w-96 h-96 bg-secondary/5 rounded-full blur-[100px]"></div>
-        </div>
-
-        <!-- VIEW: DASHBOARD -->
-        <section class="view active space-y-lg" id="view-dashboard">
-          <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-md">
-            <div class="glass-panel p-lg rounded-xl flex flex-col glow-hover">
-              <span class="font-label-caps text-label-caps text-on-surface-variant mb-sm">Publications</span>
-              <span class="font-data-display text-data-display text-primary metric-glow" id="pub-total">0</span>
-            </div>
-            <div class="glass-panel p-lg rounded-xl flex flex-col glow-hover">
-              <span class="font-label-caps text-label-caps text-on-surface-variant mb-sm">MQTT Msgs</span>
-              <span class="font-data-display text-data-display text-primary metric-glow" id="mqtt-total">0</span>
-            </div>
-            <div class="glass-panel p-lg rounded-xl flex flex-col glow-hover">
-              <span class="font-label-caps text-label-caps text-on-surface-variant mb-sm">Automations</span>
-              <span class="font-data-display text-data-display text-tertiary" id="auto-total">0</span>
-            </div>
-            <div class="glass-panel p-lg rounded-xl flex flex-col glow-hover">
-              <span class="font-label-caps text-label-caps text-on-surface-variant mb-sm">Total Users</span>
-              <span class="font-data-display text-data-display text-on-surface" id="user-total">0</span>
-            </div>
-            <div class="glass-panel p-lg rounded-xl flex flex-col glow-hover">
-              <span class="font-label-caps text-label-caps text-on-surface-variant mb-sm">Devices</span>
-              <span class="font-data-display text-data-display text-on-surface" id="device-total">0</span>
-            </div>
-            <div class="glass-panel p-lg rounded-xl flex flex-col glow-hover">
-              <span class="font-label-caps text-label-caps text-on-surface-variant mb-sm">Online</span>
-              <span class="font-data-display text-data-display text-secondary success-glow" id="device-online-total">0</span>
-            </div>
+      <!-- VIEW: DASHBOARD -->
+      <section id="view-dashboard" class="view active">
+        <div class="metric-grid">
+          <div class="glass-panel metric-card">
+            <span class="metric-title">Dispositivos</span>
+            <span class="metric-value" id="device-total">0</span>
           </div>
-          
-          <div class="grid grid-cols-1 lg:grid-cols-3 gap-lg mt-lg">
-            <!-- Telemetry Panel -->
-            <div class="lg:col-span-1 glass-panel rounded-xl p-lg flex flex-col">
-              <div class="flex items-center justify-between border-b border-white/5 pb-sm mb-md">
-                <h3 class="font-headline-md text-headline-md text-on-surface flex items-center">
-                  <span class="material-symbols-outlined text-primary mr-sm">precision_manufacturing</span>
-                  Kinematic Telemetry
-                </h3>
-              </div>
-              <div class="space-y-md flex-1">
-                <div class="flex justify-between items-center p-sm rounded-lg bg-surface-container/50 hover:bg-surface-bright/50 transition-colors">
-                  <span class="font-body-sm text-body-sm text-on-surface-variant">Base Axis (J1)</span>
-                  <span class="font-data-display text-body-lg text-primary metric-glow tracking-wider" id="dash-base">90°</span>
-                </div>
-                <div class="flex justify-between items-center p-sm rounded-lg bg-surface-container/50 hover:bg-surface-bright/50 transition-colors">
-                  <span class="font-body-sm text-body-sm text-on-surface-variant">Shoulder (J2)</span>
-                  <span class="font-data-display text-body-lg text-primary metric-glow tracking-wider" id="dash-shoulder">90°</span>
-                </div>
-                <div class="flex justify-between items-center p-sm rounded-lg bg-surface-container/50 hover:bg-surface-bright/50 transition-colors">
-                  <span class="font-body-sm text-body-sm text-on-surface-variant">Elbow (J3)</span>
-                  <span class="font-data-display text-body-lg text-primary metric-glow tracking-wider" id="dash-elbow">90°</span>
-                </div>
-                <div class="flex justify-between items-center p-sm rounded-lg bg-surface-container/50 hover:bg-surface-bright/50 transition-colors">
-                  <span class="font-body-sm text-body-sm text-on-surface-variant">Wrist (J4)</span>
-                  <span class="font-data-display text-body-lg text-primary metric-glow tracking-wider" id="dash-wrist">90°</span>
-                </div>
-              </div>
+          <div class="glass-panel metric-card">
+            <span class="metric-title">Nodos Online</span>
+            <span class="metric-value" id="device-online-total" style="color: var(--accent-online);">0</span>
+          </div>
+          <div class="glass-panel metric-card">
+            <span class="metric-title">Mensajes MQTT</span>
+            <span class="metric-value" id="mqtt-total">0</span>
+          </div>
+          <div class="glass-panel metric-card">
+            <span class="metric-title">Automatizaciones</span>
+            <span class="metric-value" id="auto-total">0</span>
+          </div>
+        </div>
+
+        <div class="dashboard-grid">
+          <!-- Brazo Robótico Card -->
+          <div class="glass-panel panel-p-lg col-8">
+            <div class="flex-between" style="margin-bottom: 24px;">
+              <h3 class="font-outfit" style="font-size: 20px; color: var(--text-primary); display: flex; align-items: center; gap: 8px;">
+                <span class="material-symbols-outlined" style="color: var(--accent-ai);">precision_manufacturing</span>
+                Brazo Robótico v1
+              </h3>
+              <button class="btn btn-primary" onclick="document.getElementById('robot-modal').classList.add('active')">
+                <span class="material-symbols-outlined">tune</span> Panel de Control
+              </button>
             </div>
             
-            <!-- Activity Log Panel -->
-            <div class="lg:col-span-2 glass-panel rounded-xl p-lg flex flex-col h-[400px]">
-              <div class="flex items-center justify-between border-b border-white/5 pb-sm mb-md">
-                <h3 class="font-headline-md text-headline-md text-on-surface flex items-center">
-                  <span class="material-symbols-outlined text-primary mr-sm">list_alt</span>
-                  System Event Stream
-                </h3>
-                <button class="px-sm py-xs rounded bg-surface-container-high font-label-caps text-[10px] text-on-surface-variant cursor-pointer hover:text-primary" id="clear-log-btn">Clear</button>
+            <div style="background: rgba(0,0,0,0.3); border-radius: var(--radius-md); padding: 16px; font-family: monospace; font-size: 13px; border: 1px solid var(--border-glass);">
+              <div class="flex-between" style="margin-bottom: 12px; border-bottom: 1px dashed rgba(255,255,255,0.1); padding-bottom: 8px;">
+                <span style="color: var(--text-muted);">ARTICULACIÓN</span>
+                <span style="color: var(--text-muted);">ÁNGULO ACTUAL</span>
               </div>
-              <div class="flex-1 overflow-y-auto space-y-xs pr-sm custom-scrollbar" id="log">
-                <!-- Logs will be injected here via script.js -->
-              </div>
+              <div class="flex-between" style="margin-bottom: 8px;"><span>Base (Servo 1)</span><strong id="dash-base" style="color: var(--accent-ai);">90°</strong></div>
+              <div class="flex-between" style="margin-bottom: 8px;"><span>Hombro (Servo 2)</span><strong id="dash-shoulder" style="color: var(--accent-ai);">90°</strong></div>
+              <div class="flex-between" style="margin-bottom: 8px;"><span>Codo (Servo 3)</span><strong id="dash-elbow" style="color: var(--accent-ai);">90°</strong></div>
+              <div class="flex-between"><span>Muñeca (Servo 4)</span><strong id="dash-wrist" style="color: var(--accent-ai);">90°</strong></div>
             </div>
           </div>
-        </section>
 
-        <!-- VIEW: DEVICES -->
-        <section class="view hidden space-y-lg" id="view-devices">
-          <div class="flex justify-between items-center">
-            <h3 class="font-headline-md text-primary flex items-center"><span class="material-symbols-outlined mr-sm">router</span> Device Grid</h3>
-            <button class="px-md py-sm rounded-lg bg-secondary/20 text-secondary border border-secondary/30 hover:bg-secondary/30 transition-all font-label-caps flex items-center gap-xs" id="discover-devices-btn" data-permission="manage_devices"><span class="material-symbols-outlined">radar</span> Discover</button>
-          </div>
-          <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-lg" id="device-grid">
-            <!-- Devices will be injected here -->
-          </div>
-        </section>
-
-        <!-- Modal Robot (Overlays the content) -->
-        <div class="absolute inset-0 z-50 bg-background/80 backdrop-blur-md hidden items-center justify-center p-lg" id="robot-modal">
-          <div class="glass-panel p-xl rounded-xl w-full max-w-4xl max-h-[90vh] overflow-y-auto custom-scrollbar relative border border-primary/30 shadow-[0_0_50px_rgba(199,191,255,0.2)]">
-            <button class="absolute top-md right-md text-on-surface-variant hover:text-error transition-colors" id="close-robot-modal"><span class="material-symbols-outlined text-[32px]">close</span></button>
-            <h2 class="font-headline-lg text-primary mb-lg flex items-center gap-sm"><span class="material-symbols-outlined">precision_manufacturing</span> Control Cinemático</h2>
-            
-            <div class="flex flex-wrap gap-md mb-lg p-md bg-surface-container/50 rounded-lg border border-white/5">
-              <button class="px-lg py-sm rounded-lg bg-primary/20 text-primary border border-primary/50 font-label-caps flex items-center gap-xs" id="btn-manual" data-mode="manual"><span class="material-symbols-outlined">touch_app</span> Manual</button>
-              <button class="px-lg py-sm rounded-lg bg-surface-bright text-on-surface-variant hover:bg-surface-variant transition-colors border border-white/10 font-label-caps flex items-center gap-xs" id="btn-auto" data-mode="auto"><span class="material-symbols-outlined">smart_toy</span> Auto</button>
-              <a href="Brazo_vision.html" class="px-lg py-sm rounded-lg bg-surface-bright text-on-surface-variant hover:bg-tertiary/20 hover:text-tertiary transition-colors border border-white/10 font-label-caps flex items-center gap-xs"><span class="material-symbols-outlined">visibility</span> Visión</a>
-              <div class="flex-1"></div>
-              <button class="px-lg py-sm rounded-lg bg-error/20 text-error border border-error/50 hover:bg-error/30 transition-all font-label-caps flex items-center gap-xs" id="reset-btn"><span class="material-symbols-outlined">restart_alt</span> Centrar Todos</button>
+          <!-- Log de Sistema -->
+          <div class="glass-panel panel-p-md col-4" style="display: flex; flex-direction: column; max-height: 400px;">
+            <div class="flex-between" style="margin-bottom: 16px;">
+              <span class="font-outfit" style="font-size: 16px; font-weight: 600;">System Logs</span>
+              <button id="clear-log-btn" class="btn" style="padding: 4px 8px;"><span class="material-symbols-outlined" style="font-size: 16px;">delete</span></button>
             </div>
-            
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-xl" id="servo-grid">
-              <!-- Servos injected here -->
+            <div id="log" style="flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 4px;">
+              <!-- Logs injected by JS -->
             </div>
           </div>
         </div>
+      </section>
 
-        <!-- VIEW: MQTT -->
-        <section class="view hidden space-y-lg" id="view-mqtt">
-           <div class="grid grid-cols-1 lg:grid-cols-2 gap-lg">
-             <form class="glass-panel p-lg rounded-xl flex flex-col gap-md" id="mqtt-form">
-               <h3 class="font-headline-md text-primary flex items-center"><span class="material-symbols-outlined mr-sm">hub</span> MQTT Gateway</h3>
-               <input id="mqtt-host" class="bg-surface-variant/50 border border-white/10 text-on-surface px-md py-sm rounded-lg focus:border-primary w-full" value="41287df21912452aa44d6b4f228a5f6d.s1.eu.hivemq.cloud" />
-               <input id="mqtt-port" class="bg-surface-variant/50 border border-white/10 text-on-surface px-md py-sm rounded-lg focus:border-primary w-full" value="8884" />
-               <input id="mqtt-user" class="bg-surface-variant/50 border border-white/10 text-on-surface px-md py-sm rounded-lg focus:border-primary w-full" placeholder="Usuario" autocomplete="username" />
-               <input id="mqtt-pass" type="password" class="bg-surface-variant/50 border border-white/10 text-on-surface px-md py-sm rounded-lg focus:border-primary w-full" placeholder="Contraseña" autocomplete="current-password" />
-               <div class="flex gap-md mt-sm">
-                 <button class="flex-1 py-sm rounded-lg bg-primary/20 text-primary border border-primary/50 hover:bg-primary/30 transition-colors font-label-caps" type="submit">Conectar</button>
-                 <button class="flex-1 py-sm rounded-lg bg-surface-bright text-on-surface-variant hover:bg-surface-variant border border-white/10 font-label-caps" type="button" id="mqtt-disconnect">Desconectar</button>
-               </div>
-             </form>
-             
-             <form class="glass-panel p-lg rounded-xl flex flex-col gap-md" id="publish-form">
-               <h3 class="font-headline-md text-primary flex items-center"><span class="material-symbols-outlined mr-sm">send</span> Publish Payload</h3>
-               <input id="pub-topic" class="bg-surface-variant/50 border border-white/10 text-on-surface px-md py-sm rounded-lg focus:border-primary w-full" value="brazo/comando" />
-               <textarea id="pub-message" class="bg-surface-variant/50 border border-white/10 text-on-surface px-md py-sm rounded-lg focus:border-primary w-full h-32 custom-scrollbar font-mono text-sm">{"accion":"ping"}</textarea>
-               <button class="py-sm rounded-lg bg-secondary/20 text-secondary border border-secondary/50 hover:bg-secondary/30 transition-colors font-label-caps mt-auto" type="submit">Publicar</button>
-             </form>
-           </div>
-           
-           <div class="glass-panel p-lg rounded-xl flex flex-col h-[500px]">
-             <div class="flex justify-between items-center mb-md border-b border-white/5 pb-sm">
-               <h3 class="font-headline-md text-primary flex items-center"><span class="material-symbols-outlined mr-sm">terminal</span> Network Trace</h3>
-               <div class="flex gap-sm w-1/2">
-                 <input id="sub-topic" class="flex-1 bg-surface-variant/50 border border-white/10 text-on-surface px-md py-xs rounded-lg focus:border-primary" value="brazo/#" />
-                 <button class="px-md rounded-lg bg-surface-bright text-on-surface-variant hover:bg-surface-variant border border-white/10 font-label-caps" id="subscribe-btn">Suscribir</button>
-               </div>
-             </div>
-             <div class="flex-1 overflow-y-auto custom-scrollbar font-mono text-sm space-y-xs" id="mqtt-messages"></div>
-           </div>
-        </section>
+      <!-- VIEW: DEVICES -->
+      <section id="view-devices" class="view">
+        <div style="margin-bottom: 24px;">
+          <button id="discover-devices-btn" class="btn btn-primary">
+            <span class="material-symbols-outlined">radar</span> Buscar Nodos
+          </button>
+        </div>
+        <div id="device-grid" class="device-grid">
+          <!-- Devices injected by JS -->
+        </div>
+      </section>
 
-        <!-- VIEW: AUTOMATIONS -->
-        <section class="view hidden space-y-lg" id="view-automations">
-          <div class="grid grid-cols-1 lg:grid-cols-2 gap-lg">
-            <form class="glass-panel p-lg rounded-xl flex flex-col gap-md" id="automation-form">
-               <h3 class="font-headline-md text-primary flex items-center"><span class="material-symbols-outlined mr-sm">memory_alt</span> Sequence Builder</h3>
-               <input id="auto-name" class="bg-surface-variant/50 border border-white/10 text-on-surface px-md py-sm rounded-lg focus:border-primary w-full" placeholder="Nombre de secuencia" />
-               <textarea id="auto-steps" class="bg-surface-variant/50 border border-white/10 text-on-surface px-md py-sm rounded-lg focus:border-primary w-full h-64 custom-scrollbar font-mono text-sm">[{"servo":1,"angle":45,"delay":300}]</textarea>
-               <button class="py-sm rounded-lg bg-primary/20 text-primary border border-primary/50 hover:bg-primary/30 transition-colors font-label-caps mt-auto" type="submit">Guardar Secuencia</button>
+      <!-- VIEW: AI CHAT -->
+      <section id="view-ai" class="view">
+        <div class="glass-panel" style="display: flex; flex-direction: column; height: 600px; max-height: calc(100vh - 200px);">
+          <div style="padding: 16px 24px; border-bottom: 1px solid var(--border-glass); display: flex; justify-content: space-between; align-items: center; background: rgba(0,0,0,0.2);">
+            <div class="flex-row">
+              <span class="material-symbols-outlined" style="color: var(--accent-ai); font-size: 28px;">psychology</span>
+              <div>
+                <h4 style="color: var(--accent-ai); font-size: 16px;">TADASHY_AI</h4>
+                <span id="ai-info-model" style="font-size: 10px; color: var(--accent-online); letter-spacing: 0.1em; text-transform: uppercase;">ONLINE</span>
+              </div>
+            </div>
+            <div class="flex-row">
+              <button id="voice-toggle-btn" class="btn"><span class="material-symbols-outlined">mic</span></button>
+              <button id="handsfree-toggle-btn" class="btn"><span class="material-symbols-outlined">headset_mic</span></button>
+            </div>
+          </div>
+          <div id="ai-chat-messages" style="flex: 1; padding: 24px; overflow-y: auto;">
+             <!-- Messages injected by JS -->
+          </div>
+          <form id="ai-chat-form" style="padding: 16px 24px; border-top: 1px solid var(--border-glass);">
+            <div style="position: relative; display: flex; align-items: center;">
+              <input type="text" id="ai-chat-input" class="input-futuristic" style="padding-right: 48px; border-radius: var(--radius-md);" placeholder="Escribe un comando a TADASHY..." autocomplete="off"/>
+              <button type="submit" style="position: absolute; right: 16px; background: transparent; border: none; color: var(--accent-ai); cursor: pointer;">
+                <span class="material-symbols-outlined">send</span>
+              </button>
+            </div>
+          </form>
+        </div>
+        <div id="ai-tools-list" style="margin-top: 16px; display: flex; flex-wrap: wrap; gap: 8px;"></div>
+      </section>
+
+      <!-- VIEW: MQTT -->
+      <section id="view-mqtt" class="view">
+        <div class="dashboard-grid">
+          <div class="col-4 flex-column">
+            <form id="mqtt-form" class="glass-panel panel-p-lg">
+              <h3 class="font-outfit" style="margin-bottom: 16px; font-size: 18px;">Configuración Broker</h3>
+              <input type="text" id="mqtt-host" class="input-futuristic" placeholder="Host (wss://...)" style="margin-bottom: 12px;" />
+              <input type="number" id="mqtt-port" class="input-futuristic" placeholder="Puerto" style="margin-bottom: 12px;" />
+              <input type="text" id="mqtt-user" class="input-futuristic" placeholder="Usuario" style="margin-bottom: 12px;" />
+              <input type="password" id="mqtt-pass" class="input-futuristic" placeholder="Contraseña" style="margin-bottom: 24px;" />
+              <div class="flex-row">
+                <button type="submit" class="btn btn-primary" style="flex: 1; justify-content: center;">Conectar</button>
+                <button type="button" id="mqtt-disconnect" class="btn btn-danger"><span class="material-symbols-outlined">power_off</span></button>
+              </div>
             </form>
-            <div class="glass-panel p-lg rounded-xl flex flex-col gap-md h-[600px]">
-               <h3 class="font-headline-md text-primary flex items-center border-b border-white/5 pb-sm"><span class="material-symbols-outlined mr-sm">format_list_bulleted</span> Active Sequences</h3>
-               <div class="flex-1 overflow-y-auto custom-scrollbar space-y-sm" id="automation-list"></div>
-            </div>
-          </div>
-        </section>
-
-        <!-- VIEW: HISTORY -->
-        <section class="view hidden space-y-lg" id="view-history">
-          <div class="glass-panel p-lg rounded-xl flex flex-col h-[700px]">
-            <div class="flex justify-between items-center border-b border-white/5 pb-sm mb-md">
-              <h3 class="font-headline-md text-primary flex items-center"><span class="material-symbols-outlined mr-sm">history</span> Audit Trail</h3>
-              <button class="px-md py-xs rounded-lg bg-surface-bright text-on-surface-variant hover:bg-surface-variant border border-white/10 font-label-caps" id="refresh-history">Refrescar</button>
-            </div>
-            <div class="flex-1 overflow-y-auto custom-scrollbar space-y-sm" id="history-list"></div>
-          </div>
-        </section>
-
-        <!-- VIEW: USERS -->
-        <section class="view hidden space-y-lg" id="view-users">
-          <div class="grid grid-cols-1 lg:grid-cols-3 gap-lg">
-            <form class="glass-panel p-lg rounded-xl flex flex-col gap-md lg:col-span-1 h-fit" id="user-form">
-               <h3 class="font-headline-md text-primary flex items-center"><span class="material-symbols-outlined mr-sm">person_add</span> Nuevo Usuario</h3>
-               <input id="new-username" class="bg-surface-variant/50 border border-white/10 text-on-surface px-md py-sm rounded-lg focus:border-primary w-full" placeholder="Usuario" />
-               <input id="new-password" type="password" class="bg-surface-variant/50 border border-white/10 text-on-surface px-md py-sm rounded-lg focus:border-primary w-full" placeholder="Contraseña" />
-               <select id="new-role" class="bg-surface-variant/50 border border-white/10 text-on-surface px-md py-sm rounded-lg focus:border-primary w-full appearance-none">
-                 <option value="super_admin">Super Admin</option>
-                 <option value="operator">Operador</option>
-                 <option value="guest">Invitado</option>
-               </select>
-               <button class="py-sm rounded-lg bg-primary/20 text-primary border border-primary/50 hover:bg-primary/30 transition-colors font-label-caps mt-sm" type="submit">Crear Cuenta</button>
+            <form id="publish-form" class="glass-panel panel-p-lg">
+              <h3 class="font-outfit" style="margin-bottom: 16px; font-size: 18px;">Publicador</h3>
+              <input type="text" id="pub-topic" class="input-futuristic" placeholder="Tópico (ej. brazo/cmd)" required style="margin-bottom: 12px;" />
+              <input type="text" id="pub-message" class="input-futuristic" placeholder="Payload" required style="margin-bottom: 16px;" />
+              <button type="submit" class="btn btn-primary" style="width: 100%; justify-content: center;">Publicar Mensaje</button>
             </form>
-            <div class="glass-panel p-lg rounded-xl flex flex-col gap-md lg:col-span-2 h-[600px]">
-               <h3 class="font-headline-md text-primary flex items-center border-b border-white/5 pb-sm"><span class="material-symbols-outlined mr-sm">group</span> Control de Accesos</h3>
-               <div class="flex-1 overflow-y-auto custom-scrollbar space-y-sm" id="user-list"></div>
-            </div>
           </div>
-        </section>
-
-        <!-- VIEW: AI -->
-        <section class="view hidden space-y-lg h-full" id="view-ai">
-          <div class="grid grid-cols-1 lg:grid-cols-3 gap-lg h-full pb-xl">
-            <div class="glass-panel p-lg rounded-xl flex flex-col lg:col-span-2 h-[calc(100vh-140px)] relative">
-              <div class="flex justify-between items-center border-b border-white/5 pb-sm mb-md">
-                <h3 class="font-headline-md text-primary flex items-center"><span class="material-symbols-outlined mr-sm">psychology</span> TADASHY AI Core</h3>
-                <div class="flex gap-sm">
-                  <button id="voice-toggle-btn" class="p-xs rounded-full bg-surface-bright hover:bg-surface-variant text-on-surface-variant hover:text-primary transition-colors"><span class="material-symbols-outlined">mic</span></button>
-                  <button id="handsfree-toggle-btn" class="p-xs rounded-full bg-surface-bright hover:bg-surface-variant text-on-surface-variant hover:text-primary transition-colors"><span class="material-symbols-outlined">hearing</span></button>
-                  <button id="stop-speaking-btn" class="p-xs rounded-full bg-surface-bright hover:bg-surface-variant text-error hover:bg-error/10 transition-colors"><span class="material-symbols-outlined">volume_off</span></button>
-                </div>
-              </div>
-              <div class="text-xs text-secondary/70 text-center mb-sm font-mono" id="voice-status">Voice Ready</div>
-              <div id="ai-chat-messages" class="flex-1 overflow-y-auto custom-scrollbar space-y-md pr-sm pb-24"></div>
-              
-              <form id="ai-chat-form" class="absolute bottom-lg left-lg right-lg flex gap-md bg-surface-variant/80 backdrop-blur-md p-sm rounded-xl border border-white/10 shadow-[0_-10px_40px_rgba(0,0,0,0.5)]">
-                <input id="ai-chat-input" class="flex-1 bg-transparent border-none text-on-surface font-body-md focus:outline-none px-md" placeholder="Consult the AI Core..." autocomplete="off" />
-                <button class="p-sm rounded-lg bg-primary text-on-primary hover:shadow-[0_0_15px_rgba(199,191,255,0.6)] transition-all" type="submit"><span class="material-symbols-outlined">send</span></button>
-              </form>
-            </div>
-            
-            <div class="glass-panel p-lg rounded-xl flex flex-col h-fit lg:max-h-[calc(100vh-140px)] overflow-y-auto custom-scrollbar">
-              <h3 class="font-headline-md text-primary flex items-center border-b border-white/5 pb-sm mb-md"><span class="material-symbols-outlined mr-sm">verified</span> Capabilities</h3>
-              <div class="space-y-md">
-                <div class="p-sm bg-surface-container/50 rounded-lg border border-white/5">
-                  <span class="text-[10px] text-on-surface-variant font-label-caps block mb-xs">Model</span>
-                  <strong class="text-secondary font-mono text-sm" id="ai-info-model">Cargando...</strong>
-                </div>
-                <div class="p-sm bg-surface-container/50 rounded-lg border border-white/5">
-                  <span class="text-[10px] text-on-surface-variant font-label-caps block mb-xs">Endpoint</span>
-                  <code class="text-primary font-mono text-[10px] break-all" id="ai-info-endpoint">Cargando...</code>
-                </div>
-                <div class="pt-sm border-t border-white/5">
-                  <span class="text-[10px] text-on-surface-variant font-label-caps block mb-sm">Active Tools</span>
-                  <div id="ai-tools-list" class="space-y-xs"></div>
-                </div>
+          <div class="col-8 glass-panel" style="display: flex; flex-direction: column; height: 600px;">
+            <div style="padding: 16px; border-bottom: 1px solid var(--border-glass); display: flex; justify-content: space-between; align-items: center;">
+              <span class="font-outfit" style="font-weight: 600;">Terminal MQTT</span>
+              <div class="flex-row">
+                <input type="text" id="sub-topic" class="input-futuristic" placeholder="Tópico a suscribir..." style="padding: 6px 12px; margin: 0; width: 200px;" />
+                <button id="subscribe-btn" class="btn btn-primary" style="padding: 6px 12px;">Suscribir</button>
               </div>
             </div>
+            <div id="mqtt-messages" style="flex: 1; overflow-y: auto; padding: 16px; font-family: monospace; font-size: 12px; background: rgba(0,0,0,0.5);">
+              <!-- MQTT Log Items -->
+            </div>
           </div>
-        </section>
+        </div>
+      </section>
 
-      </main>
+      <!-- VIEW: AUTOMATIONS -->
+      <section id="view-automations" class="view">
+        <div class="dashboard-grid">
+          <div class="col-4">
+            <form id="automation-form" class="glass-panel panel-p-lg">
+              <h3 class="font-outfit" style="margin-bottom: 16px; font-size: 18px;">Nueva Rutina</h3>
+              <input type="text" id="auto-name" class="input-futuristic" placeholder="Nombre (ej. Secuencia Alfa)" required style="margin-bottom: 12px;" />
+              <textarea id="auto-steps" class="input-futuristic" placeholder="[{&quot;topic&quot;:&quot;brazo/servo/1&quot;,&quot;payload&quot;:&quot;90&quot;,&quot;delay&quot;:1000}]" required style="margin-bottom: 16px; height: 120px; resize: none;"></textarea>
+              <button type="submit" class="btn btn-primary" style="width: 100%; justify-content: center;">Guardar Rutina</button>
+            </form>
+          </div>
+          <div class="col-8">
+            <div id="automation-list" style="display: flex; flex-direction: column;">
+              <!-- Automations injected by JS -->
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- VIEW: HISTORY -->
+      <section id="view-history" class="view">
+        <div style="margin-bottom: 24px;">
+          <button id="refresh-history" class="btn btn-primary">
+            <span class="material-symbols-outlined">refresh</span> Actualizar
+          </button>
+        </div>
+        <div class="glass-panel" style="max-height: 600px; overflow-y: auto; padding: 16px;">
+          <div id="history-list" style="display: flex; flex-direction: column;">
+            <!-- History Items injected by JS -->
+          </div>
+        </div>
+      </section>
+
+      <!-- VIEW: USERS -->
+      <section id="view-users" class="view">
+        <div class="dashboard-grid">
+          <div class="col-4">
+            <form id="user-form" class="glass-panel panel-p-lg">
+              <h3 class="font-outfit" style="margin-bottom: 16px; font-size: 18px;">Nuevo Operador</h3>
+              <input type="text" id="new-username" class="input-futuristic" placeholder="Usuario" required style="margin-bottom: 12px;" />
+              <input type="password" id="new-password" class="input-futuristic" placeholder="Contraseña" required style="margin-bottom: 12px;" />
+              <select id="new-role" class="input-futuristic" style="margin-bottom: 24px; appearance: none; color: var(--text-muted);">
+                <option value="user">Operador Básico</option>
+                <option value="admin">Administrador</option>
+              </select>
+              <button type="submit" class="btn btn-primary" style="width: 100%; justify-content: center;">Crear Cuenta</button>
+            </form>
+          </div>
+          <div class="col-8">
+            <div id="user-list" style="display: flex; flex-direction: column;">
+              <!-- User Cards injected by JS -->
+            </div>
+          </div>
+        </div>
+      </section>
+      
+    </main>
+  </div>
+
+  <!-- ROBOT CONTROL MODAL -->
+  <div id="robot-modal">
+    <div class="glass-panel modal-content">
+      <div style="padding: 24px; border-bottom: 1px solid var(--border-glass); display: flex; justify-content: space-between; align-items: center; background: rgba(0,0,0,0.3);">
+        <h2 class="font-outfit" style="font-size: 24px; color: var(--text-primary); display: flex; align-items: center; gap: 8px;">
+          <span class="material-symbols-outlined" style="color: var(--accent-ai);">precision_manufacturing</span>
+          Control Maestro
+        </h2>
+        <div class="flex-row">
+          <button id="btn-manual" class="btn btn-primary">Modo Manual</button>
+          <button id="btn-auto" class="btn">Modo Automático</button>
+          <button id="reset-btn" class="btn btn-danger" style="margin-left: 16px;"><span class="material-symbols-outlined">restart_alt</span> Reset</button>
+          <button id="close-robot-modal" class="btn" style="padding: 8px; border-radius: 50%;"><span class="material-symbols-outlined">close</span></button>
+        </div>
+      </div>
+      
+      <div style="padding: 24px;">
+        <div id="servo-grid" class="servo-grid">
+          <!-- Servos injected by JS -->
+        </div>
+      </div>
     </div>
   </div>
 
-  <style>
-    .custom-scrollbar::-webkit-scrollbar { width: 4px; }
-    .custom-scrollbar::-webkit-scrollbar-track { background: rgba(255,255,255,0.02); border-radius: 4px; }
-    .custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(199, 191, 255, 0.2); border-radius: 4px; }
-    .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: rgba(199, 191, 255, 0.4); }
-    
-    .glass-panel {
-      background-color: rgba(19, 19, 24, 0.6);
-      backdrop-filter: blur(12px);
-      border: 1px solid rgba(199, 191, 255, 0.15);
-      box-shadow: 0 4px 30px rgba(0, 0, 0, 0.1);
-    }
-    .glow-hover:hover {
-      box-shadow: 0 0 20px rgba(199, 191, 255, 0.3);
-      border-color: rgba(199, 191, 255, 0.4);
-      transform: scale(1.02);
-      transition: all 0.3s ease-out;
-    }
-    .metric-glow { text-shadow: 0 0 10px rgba(199, 191, 255, 0.5); }
-    .success-glow { text-shadow: 0 0 10px rgba(81, 223, 156, 0.5); }
-    
-    /* Manejo de vistas por defecto para JS viejo */
-    .view { display: none; }
-    .view.active { display: block; }
-  </style>
-
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/mqtt/dist/mqtt.min.js"></script>
   <script src="script.js"></script>
 </body>
 </html>
