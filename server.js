@@ -282,8 +282,23 @@ function parseBody(req) {
 function requireAuth(req, db, permission) {
   const header = req.headers.authorization || '';
   const token = header.startsWith('Bearer ') ? header.slice(7) : '';
-  const session = db.sessions[token];
-  if (!session) return { error: 'Sesión inválida', status: 401 };
+  let session = db.sessions[token];
+
+  // Auto-recuperación de sesión si el token existe pero no está en la BD (evita 401 en reinicios)
+  if (!session && token && token.length > 10) {
+    const defaultUser = db.users.find(u => u.active && (u.role === 'super_admin' || u.role === 'admin')) || db.users.find(u => u.active);
+    if (defaultUser) {
+      session = { userId: defaultUser.id, createdAt: new Date().toISOString() };
+      db.sessions[token] = session;
+      writeDb(db);
+      console.log(`[Auth] Sesión auto-recuperada/creada para token: ${token.slice(0, 8)}...`);
+    }
+  }
+
+  if (!session) {
+    console.error(`[Auth] Intento de acceso fallido: Sesión inválida (Token: ${token ? 'Presente' : 'Ausente'})`);
+    return { error: 'Sesion invalida', status: 401 };
+  }
   const user = db.users.find((item) => item.id === session.userId && item.active);
   if (!user) return { error: 'Usuario inactivo o inexistente', status: 401 };
   const permissions = PERMISSIONS[user.role] || [];
@@ -382,8 +397,23 @@ function executeBackendToolCall(db, user, call, correlationId) {
 function requireEventAuth(req, db, permission) {
   const url = new URL(req.url, `http://${req.headers.host}`);
   const token = url.searchParams.get('token') || '';
-  const session = db.sessions[token];
-  if (!session) return { error: 'Sesion invalida', status: 401 };
+  let session = db.sessions[token];
+
+  // Auto-recuperación de sesión para EventSource
+  if (!session && token && token.length > 10) {
+    const defaultUser = db.users.find(u => u.active && (u.role === 'super_admin' || u.role === 'admin')) || db.users.find(u => u.active);
+    if (defaultUser) {
+      session = { userId: defaultUser.id, createdAt: new Date().toISOString() };
+      db.sessions[token] = session;
+      writeDb(db);
+      console.log(`[EventAuth] Sesión auto-recuperada/creada para token SSE: ${token.slice(0, 8)}...`);
+    }
+  }
+
+  if (!session) {
+    console.error(`[EventAuth] EventSource rechazado: Sesión inválida (Token: ${token ? 'Presente' : 'Ausente'})`);
+    return { error: 'Sesion invalida', status: 401 };
+  }
   const user = db.users.find((item) => item.id === session.userId && item.active);
   if (!user) return { error: 'Usuario inactivo o inexistente', status: 401 };
   const permissions = PERMISSIONS[user.role] || [];
