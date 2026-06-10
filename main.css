@@ -233,7 +233,7 @@ i { font-size: 16px; }
 
 .metric-grid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
   gap: 12px;
   margin-bottom: 14px;
 }
@@ -261,6 +261,96 @@ i { font-size: 16px; }
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(300px, 420px);
   gap: 14px;
+}
+
+.device-inventory { margin-bottom: 14px; }
+
+.device-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+  gap: 10px;
+}
+
+.device-card {
+  min-height: 150px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 13px;
+  background: var(--panel-2);
+  border: 0.5px solid var(--line);
+  border-radius: 8px;
+}
+
+.device-card.online { border-color: rgba(62, 207, 142, 0.45); }
+.device-card.offline { border-color: rgba(240, 180, 41, 0.35); opacity: 0.82; }
+
+.device-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  align-items: flex-start;
+}
+
+.device-id {
+  color: #c4b5fd;
+  font-family: Consolas, monospace;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+.device-type {
+  margin-top: 3px;
+  color: var(--dim);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.device-meta {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 7px;
+}
+
+.device-meta div {
+  min-width: 0;
+  padding: 8px;
+  background: rgba(14, 11, 26, 0.34);
+  border: 0.5px solid rgba(160, 130, 255, 0.1);
+  border-radius: 7px;
+}
+
+.device-meta span {
+  display: block;
+  color: var(--dim);
+  font-size: 10px;
+  margin-bottom: 3px;
+}
+
+.device-meta strong {
+  display: block;
+  color: var(--muted);
+  font-family: Consolas, monospace;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.device-telemetry {
+  min-height: 30px;
+  color: var(--muted);
+  font-family: Consolas, monospace;
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+
+.empty-state {
+  padding: 16px;
+  color: var(--dim);
+  background: rgba(30, 22, 56, 0.6);
+  border: 0.5px dashed var(--line-strong);
+  border-radius: 8px;
+  font-size: 13px;
 }
 
 .telemetry-grid {

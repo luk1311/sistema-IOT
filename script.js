@@ -19,8 +19,10 @@ let auth = JSON.parse(localStorage.getItem('tadashy_auth') || 'null');
 let automations = [];
 let users = [];
 let historyItems = [];
+let devices = [];
 let currentMode = 'manual';
 let deviceTimer = null;
+let iotEvents = null;
 
 const viewCopy = {
   dashboard: ['Dashboard IoT', 'Estado en tiempo real del sistema y del broker MQTT.'],
@@ -95,6 +97,7 @@ function renderShell() {
   if (activeNav?.classList.contains('hidden')) switchView('dashboard');
   buildCards();
   loadAll();
+  connectIotEvents();
   autoConnectMqtt();
 }
 
@@ -127,6 +130,8 @@ function logout() {
   auth = null;
   if (client) client.end(true);
   client = null;
+  if (iotEvents) iotEvents.close();
+  iotEvents = null;
   renderShell();
 }
 
@@ -276,6 +281,7 @@ function connectMqtt({ host, port, username, password }) {
     $('conn-badge').className = 'badge badge-ok';
     $('conn-badge').innerHTML = '<i class="ti ti-wifi"></i> MQTT conectado';
     client.subscribe('brazo/#');
+    client.subscribe('devices/#');
     addLog('Broker MQTT conectado', 'ok');
     saveHistory('mqtt_connect', `Conexión MQTT a ${host}`);
   });
@@ -310,6 +316,9 @@ function onMqttMessage(topic, payloadBuffer) {
   addMqttRow(topic, payload);
   setDevice(topic === 'brazo/status' ? payload === 'online' : true);
 
+  const deviceTopic = topic.match(/^devices\/([^/]+)\/(status|telemetry|config)$/);
+  if (deviceTopic) refreshDevicesSoon();
+
   const match = topic.match(/^brazo\/servo\/feedback\/(\d)$/);
   if (match) {
     const idx = parseInt(match[1], 10);
@@ -331,7 +340,110 @@ function addMqttRow(topic, payload) {
 }
 
 async function loadAll() {
-  await Promise.allSettled([loadUsers(), loadAutomations(), loadHistory()]);
+  await Promise.allSettled([loadUsers(), loadAutomations(), loadHistory(), loadDevices()]);
+}
+
+async function loadDevices() {
+  if (!hasPermission('view_dashboard')) return;
+  try {
+    const data = await api('/devices');
+    devices = data.devices || [];
+    renderDevices();
+  } catch (error) {
+    addLog(`Inventario IoT no disponible: ${error.message}`, 'err');
+  }
+}
+
+function renderDevices() {
+  const grid = $('device-grid');
+  if (!grid) return;
+  const online = devices.filter((device) => device.status === 'online').length;
+  $('device-total').textContent = devices.length;
+  $('device-online-total').textContent = online;
+
+  if (!devices.length) {
+    grid.innerHTML = '<div class="empty-state">Sin dispositivos descubiertos. Esperando heartbeat en devices/{deviceId}/status o telemetria en devices/{deviceId}/telemetry.</div>';
+    return;
+  }
+
+  grid.innerHTML = devices.map((device) => {
+    const lastSeen = device.lastSeen ? new Date(device.lastSeen).toLocaleTimeString('es-CO') : '--';
+    const firmware = device.firmware || device.metadata?.firmware || '--';
+    const telemetry = device.lastTelemetry
+      ? JSON.stringify(device.lastTelemetry).slice(0, 160)
+      : 'Sin telemetria reciente';
+    const statusClass = device.status === 'online' ? 'online' : 'offline';
+    const statusBadge = device.status === 'online'
+      ? '<span class="badge badge-dev-on"><i class="ti ti-activity"></i>Online</span>'
+      : '<span class="badge badge-dev-off"><i class="ti ti-power"></i>Offline</span>';
+
+    return `
+      <div class="device-card ${statusClass}" data-device-id="${escapeHtml(device.deviceId)}">
+        <div class="device-head">
+          <div>
+            <div class="device-id">${escapeHtml(device.name || device.deviceId)}</div>
+            <div class="device-type">${escapeHtml(device.type || 'esp32')} - ${escapeHtml(device.deviceId)}</div>
+          </div>
+          ${statusBadge}
+        </div>
+        <div class="device-meta">
+          <div><span>Ultimo heartbeat</span><strong>${escapeHtml(lastSeen)}</strong></div>
+          <div><span>Firmware</span><strong>${escapeHtml(firmware)}</strong></div>
+        </div>
+        <div class="device-telemetry">${escapeHtml(telemetry)}</div>
+      </div>`;
+  }).join('');
+}
+
+let refreshDevicesTimer = null;
+function refreshDevicesSoon() {
+  clearTimeout(refreshDevicesTimer);
+  refreshDevicesTimer = setTimeout(loadDevices, 250);
+}
+
+function upsertDevice(device) {
+  if (!device?.deviceId) return;
+  const index = devices.findIndex((item) => item.deviceId === device.deviceId);
+  if (index >= 0) devices[index] = device;
+  else devices.unshift(device);
+  renderDevices();
+}
+
+function connectIotEvents() {
+  if (!auth?.token || iotEvents) return;
+  iotEvents = new EventSource(`${API}/iot/events?token=${encodeURIComponent(auth.token)}`);
+  iotEvents.addEventListener('device', (event) => {
+    const data = JSON.parse(event.data);
+    upsertDevice(data.payload);
+  });
+  iotEvents.addEventListener('telemetry', (event) => {
+    const data = JSON.parse(event.data);
+    const telemetry = data.payload;
+    const device = devices.find((item) => item.deviceId === telemetry.deviceId);
+    if (device) {
+      device.status = 'online';
+      device.lastTelemetry = telemetry.payload;
+      device.lastSeen = telemetry.receivedAt;
+      renderDevices();
+    } else {
+      refreshDevicesSoon();
+    }
+  });
+  iotEvents.onerror = () => {
+    if (iotEvents) iotEvents.close();
+    iotEvents = null;
+    if (auth) setTimeout(connectIotEvents, 3000);
+  };
+}
+
+async function discoverDevices() {
+  if (!hasPermission('manage_devices')) return addLog('No tienes permiso para descubrimiento IoT', 'err');
+  try {
+    await api('/devices/discover', { method: 'POST' });
+    addLog('Solicitud de descubrimiento IoT enviada', 'ok');
+  } catch (error) {
+    addLog(`Descubrimiento IoT fallido: ${error.message}`, 'err');
+  }
 }
 
 async function loadUsers() {
@@ -479,6 +591,7 @@ function bindEvents() {
   $('automation-form').addEventListener('submit', createAutomation);
   $('user-form').addEventListener('submit', createUser);
   $('refresh-history').addEventListener('click', loadHistory);
+  $('discover-devices-btn').addEventListener('click', discoverDevices);
 
   $('nav-tabs').addEventListener('click', (event) => {
     const button = event.target.closest('.nav-btn');

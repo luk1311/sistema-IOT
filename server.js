@@ -2,6 +2,8 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const mqtt = require('mqtt');
+const { createIotStore, normalizeDeviceId, parseJson } = require('./iot_store');
 
 class HttpError extends Error {
   constructor(status, message) {
@@ -14,6 +16,14 @@ const PORT = Number(process.env.PORT || 3000);
 const ROOT = __dirname;
 const DATA_DIR = path.join(ROOT, 'data');
 const DB_FILE = path.join(DATA_DIR, 'db.json');
+const HEARTBEAT_TIMEOUT_MS = Number(process.env.IOT_HEARTBEAT_TIMEOUT_MS || 15000);
+const MQTT_URL = process.env.MQTT_URL || process.env.TADASHY_MQTT_URL || '';
+const MQTT_USERNAME = process.env.MQTT_USERNAME || process.env.TADASHY_MQTT_USERNAME || '';
+const MQTT_PASSWORD = process.env.MQTT_PASSWORD || process.env.TADASHY_MQTT_PASSWORD || '';
+
+let iotStore = null;
+let iotMqttClient = null;
+const eventClients = new Set();
 
 const PERMISSIONS = {
   super_admin: [
@@ -34,7 +44,6 @@ const PERMISSIONS = {
     'view_history',
     'run_automations',
     'mqtt_status',
-    'mqtt_monitor',
     'mqtt_publish',
     'robot_control'
   ],
@@ -59,6 +68,27 @@ const MIME = {
   '.jpg': 'image/jpeg',
   '.svg': 'image/svg+xml'
 };
+
+function emitIotEvent(type, payload) {
+  const event = `event: ${type}\ndata: ${JSON.stringify({ type, payload, at: new Date().toISOString() })}\n\n`;
+  for (const res of eventClients) res.write(event);
+}
+
+function validateDevicePatch(body = {}) {
+  const patch = {};
+  if (typeof body.name === 'string') patch.name = body.name.trim().slice(0, 80);
+  if (typeof body.type === 'string') patch.type = body.type.trim().slice(0, 40);
+  if (typeof body.firmware === 'string') patch.firmware = body.firmware.trim().slice(0, 80);
+  if (typeof body.ip === 'string') patch.ip = body.ip.trim().slice(0, 64);
+  if (Array.isArray(body.capabilities)) patch.capabilities = body.capabilities.slice(0, 30).map(String);
+  if (body.metadata && typeof body.metadata === 'object' && !Array.isArray(body.metadata)) patch.metadata = body.metadata;
+  if (body.config && typeof body.config === 'object' && !Array.isArray(body.config)) patch.config = body.config;
+  return patch;
+}
+
+function validDeviceId(value) {
+  return Boolean(normalizeDeviceId(value));
+}
 
 function ensureDb() {
   if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
@@ -189,9 +219,101 @@ function addHistory(db, user, type, detail, metadata = {}) {
   db.history = db.history.slice(0, 500);
 }
 
+function requireEventAuth(req, db, permission) {
+  const url = new URL(req.url, `http://${req.headers.host}`);
+  const token = url.searchParams.get('token') || '';
+  const session = db.sessions[token];
+  if (!session) return { error: 'Sesion invalida', status: 401 };
+  const user = db.users.find((item) => item.id === session.userId && item.active);
+  if (!user) return { error: 'Usuario inactivo o inexistente', status: 401 };
+  const permissions = PERMISSIONS[user.role] || [];
+  if (permission && !permissions.includes(permission)) return { error: 'Permiso denegado', status: 403 };
+  return { user, token, permissions };
+}
+
+function handleIotMqttMessage(topic, payloadBuffer) {
+  if (!iotStore) return;
+  const payloadText = payloadBuffer.toString();
+  const match = topic.match(/^devices\/([^/]+)\/(status|telemetry|config)$/);
+  if (!match) return;
+
+  const deviceId = normalizeDeviceId(match[1]);
+  if (!deviceId) return;
+
+  const channel = match[2];
+  const payload = parseJson(payloadText, payloadText);
+
+  if (channel === 'status') {
+    const status = typeof payload === 'object' ? payload.status : payload;
+    const patch = typeof payload === 'object' ? validateDevicePatch(payload) : {};
+    const device = iotStore.registerDevice(deviceId, {
+      ...patch,
+      status: status === 'offline' ? 'offline' : 'online',
+      metadata: { source: 'mqtt', ...(patch.metadata || {}) }
+    });
+    emitIotEvent('device', device);
+    return;
+  }
+
+  if (channel === 'telemetry') {
+    const telemetry = iotStore.addTelemetry(deviceId, topic, payload);
+    emitIotEvent('telemetry', telemetry);
+    emitIotEvent('device', iotStore.getDevice(deviceId));
+    return;
+  }
+
+  if (channel === 'config' && typeof payload === 'object' && !Array.isArray(payload)) {
+    const device = iotStore.updateDevice(deviceId, { config: payload, metadata: { source: 'mqtt_config' } })
+      || iotStore.registerDevice(deviceId, { config: payload, metadata: { source: 'mqtt_config' } });
+    emitIotEvent('device', device);
+  }
+}
+
+function startIotMqttBridge() {
+  if (!MQTT_URL) {
+    console.log('IoT MQTT bridge desactivado: define MQTT_URL para descubrimiento automatico servidor.');
+    return;
+  }
+
+  iotMqttClient = mqtt.connect(MQTT_URL, {
+    username: MQTT_USERNAME || undefined,
+    password: MQTT_PASSWORD || undefined,
+    clientId: `tadashy_iot_backend_${crypto.randomBytes(4).toString('hex')}`,
+    connectTimeout: 6000,
+    reconnectPeriod: 2500,
+    keepalive: 30
+  });
+
+  iotMqttClient.on('connect', () => {
+    iotMqttClient.subscribe('devices/+/status');
+    iotMqttClient.subscribe('devices/+/telemetry');
+    iotMqttClient.subscribe('devices/+/config');
+    console.log('IoT MQTT bridge conectado y suscrito a devices/+/...');
+  });
+
+  iotMqttClient.on('message', handleIotMqttMessage);
+  iotMqttClient.on('error', (error) => {
+    console.error(`IoT MQTT bridge error: ${error.message}`);
+  });
+}
+
 async function handleApi(req, res, url) {
   const db = readDb();
   const method = req.method;
+
+  if (method === 'GET' && url.pathname === '/api/iot/events') {
+    const auth = requireEventAuth(req, db, 'view_dashboard');
+    if (auth.error) return send(res, auth.status, { error: auth.error });
+    res.writeHead(200, {
+      'Content-Type': 'text/event-stream; charset=utf-8',
+      'Cache-Control': 'no-cache, no-transform',
+      'Connection': 'keep-alive'
+    });
+    res.write(`event: ready\ndata: ${JSON.stringify({ ok: true })}\n\n`);
+    eventClients.add(res);
+    req.on('close', () => eventClients.delete(res));
+    return;
+  }
 
   if (method === 'POST' && url.pathname === '/api/auth/login') {
     const body = await parseBody(req);
@@ -225,6 +347,74 @@ async function handleApi(req, res, url) {
 
   if (route === 'GET /api/permissions') {
     return send(res, 200, { permissions: PERMISSIONS });
+  }
+
+  if (route === 'GET /api/devices') {
+    const allowed = requireAuth(req, db, 'view_dashboard');
+    if (allowed.error) return send(res, allowed.status, { error: allowed.error });
+    return send(res, 200, { devices: iotStore.listDevices() });
+  }
+
+  if (route === 'POST /api/devices/discover') {
+    const allowed = requireAuth(req, db, 'manage_devices');
+    if (allowed.error) return send(res, allowed.status, { error: allowed.error });
+    if (iotMqttClient?.connected) {
+      iotMqttClient.publish('devices/broadcast/commands', JSON.stringify({ action: 'announce', at: new Date().toISOString() }));
+    }
+    addHistory(db, auth.user, 'iot_discovery', 'Descubrimiento IoT solicitado');
+    writeDb(db);
+    return send(res, 202, { ok: true });
+  }
+
+  const deviceMatch = url.pathname.match(/^\/api\/devices\/([^/]+)$/);
+  if (method === 'GET' && deviceMatch) {
+    const allowed = requireAuth(req, db, 'view_dashboard');
+    if (allowed.error) return send(res, allowed.status, { error: allowed.error });
+    const device = iotStore.getDevice(deviceMatch[1]);
+    if (!device) return send(res, 404, { error: 'Dispositivo no encontrado' });
+    return send(res, 200, { device });
+  }
+
+  if (method === 'PATCH' && deviceMatch) {
+    const allowed = requireAuth(req, db, 'manage_devices');
+    if (allowed.error) return send(res, allowed.status, { error: allowed.error });
+    if (!validDeviceId(deviceMatch[1])) return send(res, 400, { error: 'deviceId invalido' });
+    const body = await parseBody(req);
+    const device = iotStore.updateDevice(deviceMatch[1], validateDevicePatch(body));
+    if (!device) return send(res, 404, { error: 'Dispositivo no encontrado' });
+    addHistory(db, auth.user, 'iot_device', `Actualizo dispositivo ${device.deviceId}`);
+    writeDb(db);
+    emitIotEvent('device', device);
+    return send(res, 200, { device });
+  }
+
+  const telemetryMatch = url.pathname.match(/^\/api\/devices\/([^/]+)\/telemetry$/);
+  if (method === 'GET' && telemetryMatch) {
+    const allowed = requireAuth(req, db, 'view_dashboard');
+    if (allowed.error) return send(res, allowed.status, { error: allowed.error });
+    return send(res, 200, {
+      telemetry: iotStore.listTelemetry(telemetryMatch[1], url.searchParams.get('limit') || 50)
+    });
+  }
+
+  const commandMatch = url.pathname.match(/^\/api\/devices\/([^/]+)\/commands$/);
+  if (method === 'POST' && commandMatch) {
+    const allowed = requireAuth(req, db, 'manage_devices');
+    if (allowed.error) return send(res, allowed.status, { error: allowed.error });
+    if (!validDeviceId(commandMatch[1])) return send(res, 400, { error: 'deviceId invalido' });
+    const body = await parseBody(req);
+    const command = String(body.command || '').trim();
+    if (!command || command.length > 80) return send(res, 400, { error: 'Comando invalido' });
+    const payload = body.payload && typeof body.payload === 'object' ? body.payload : {};
+    const record = iotStore.addCommand(commandMatch[1], command, payload);
+    if (!record) return send(res, 404, { error: 'Dispositivo no encontrado' });
+    if (iotMqttClient?.connected) {
+      iotMqttClient.publish(`devices/${record.deviceId}/commands`, JSON.stringify({ command, payload, at: record.createdAt }));
+    }
+    addHistory(db, auth.user, 'iot_command', `Comando ${command} enviado a ${record.deviceId}`, { deviceId: record.deviceId });
+    writeDb(db);
+    emitIotEvent('command', record);
+    return send(res, 202, { command: record });
   }
 
   if (route === 'GET /api/users') {
@@ -367,8 +557,27 @@ const server = http.createServer(async (req, res) => {
 });
 
 ensureDb();
-server.listen(PORT, () => {
-  console.log(`TADASHY listo en http://localhost:${PORT}`);
-  console.log('Usuario inicial: admin / admin123');
-  console.log('Rol inicial: Super Admin');
+
+(async function start() {
+  iotStore = await createIotStore({ dataDir: DATA_DIR });
+  startIotMqttBridge();
+  setInterval(() => {
+    const offlineIds = iotStore.markOfflineStaleDevices(HEARTBEAT_TIMEOUT_MS);
+    offlineIds.forEach((deviceId) => emitIotEvent('device', iotStore.getDevice(deviceId)));
+  }, Math.max(3000, Math.floor(HEARTBEAT_TIMEOUT_MS / 2)));
+
+  server.listen(PORT, () => {
+    const address = server.address();
+    const actualPort = typeof address === 'object' && address ? address.port : PORT;
+    console.log(`TADASHY listo en http://localhost:${actualPort}`);
+    console.log('Usuario inicial: admin / admin123');
+    console.log('Rol inicial: Super Admin');
+    console.log(`SQLite IoT: ${iotStore.filePath}`);
+  });
+})();
+
+process.on('SIGINT', () => {
+  if (iotMqttClient) iotMqttClient.end(true);
+  if (iotStore) iotStore.close();
+  process.exit();
 });
