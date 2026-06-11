@@ -27,6 +27,10 @@ let voiceRecognition = null;
 let voiceEnabled = false;
 let handsFreeMode = JSON.parse(localStorage.getItem('tadashy_handsfree') || 'false');
 let voiceSessionId = localStorage.getItem('tadashy_voice_session') || `voice-${Date.now()}`;
+let isSpeaking = false;
+let pttActive = false;
+let aiCallsSaved = 0;
+let aiTokensSaved = 0;
 
 const viewCopy = {
   dashboard: ['Dashboard IoT', 'Estado en tiempo real del sistema y del broker MQTT.'],
@@ -716,18 +720,43 @@ function updateVoiceStatus(text, active = voiceEnabled) {
 }
 
 function speakAi(text) {
-  if (!('speechSynthesis' in window) || !text || (!voiceEnabled && !handsFreeMode)) return;
+  if (!('speechSynthesis' in window) || !text || (!voiceEnabled && !handsFreeMode && !pttActive)) return;
   window.speechSynthesis.cancel();
   const utterance = new SpeechSynthesisUtterance(text.replace(/\s+/g, ' ').slice(0, 800));
   utterance.lang = 'es-CO';
   utterance.rate = 0.96;
   utterance.pitch = 1;
+  
+  utterance.onstart = () => {
+    isSpeaking = true;
+    if (voiceRecognition) {
+      try { voiceRecognition.stop(); } catch (e) {}
+    }
+    updateVoiceStatus('Hablando... (micrófono desactivado)', false);
+  };
+  
+  utterance.onend = () => {
+    isSpeaking = false;
+    setTimeout(() => {
+      if (!isSpeaking && (voiceEnabled || pttActive)) {
+        try { voiceRecognition.start(); } catch (e) {}
+      }
+      updateVoiceStatus(voiceEnabled ? 'Escuchando · Hey TADASHY' : (pttActive ? 'PTT Activo' : 'Voz lista'));
+    }, 1000);
+  };
+  
   window.speechSynthesis.speak(utterance);
 }
 
 function stopSpeaking() {
+  isSpeaking = false;
   if ('speechSynthesis' in window) window.speechSynthesis.cancel();
   updateVoiceStatus(voiceEnabled ? 'Escuchando · Hey TADASHY' : 'Voz lista · Hey TADASHY');
+  setTimeout(() => {
+    if (voiceEnabled || pttActive) {
+      try { voiceRecognition.start(); } catch (e) {}
+    }
+  }, 500);
 }
 
 function normalizeVoiceText(text) {
@@ -739,6 +768,7 @@ function normalizeVoiceText(text) {
 }
 
 async function handleVoiceTranscript(transcript) {
+  if (isSpeaking) return;
   const raw = String(transcript || '').trim();
   const normalized = normalizeVoiceText(raw);
   if (!raw) return;
@@ -776,7 +806,7 @@ function initVoiceAssistant() {
     if (last?.isFinal) handleVoiceTranscript(last[0].transcript).catch((err) => updateVoiceStatus(`Voz: ${err.message}`, false));
   };
   voiceRecognition.onend = () => {
-    if (voiceEnabled) {
+    if ((voiceEnabled || pttActive) && !isSpeaking) {
       try { voiceRecognition.start(); } catch (err) {}
     }
   };
@@ -813,9 +843,78 @@ async function toggleHandsFree() {
   }
 }
 
+function updateAiMetrics(calls, tokens) {
+  aiCallsSaved += calls;
+  aiTokensSaved += tokens;
+  if ($('ai-calls-saved')) $('ai-calls-saved').textContent = aiCallsSaved;
+  if ($('ai-tokens-saved')) $('ai-tokens-saved').textContent = `~${aiTokensSaved}`;
+}
+
+function handleQuickCommand(cmd, options) {
+  updateAiMetrics(1, 150);
+  let reply = '';
+  
+  if (cmd.includes('robot') || cmd === '/robot') {
+    reply = `
+      <b>🤖 Menú: Brazo Robótico</b><br><br>
+      Elige una acción rápida:<br>
+      <div style="margin-top:12px; display:flex; flex-direction:column; gap:8px;">
+        <button class="btn btn-primary" onclick="window.executeBotAction('robot_start')" style="justify-content:center;">Posición Inicio</button>
+        <button class="btn" onclick="window.executeBotAction('robot_rest')" style="justify-content:center;">Posición Reposo</button>
+        <button class="btn" onclick="window.executeBotAction('robot_open')" style="justify-content:center;">Abrir Pinza</button>
+        <button class="btn" onclick="window.executeBotAction('robot_close')" style="justify-content:center;">Cerrar Pinza</button>
+      </div>
+    `;
+  } else if (cmd.includes('dispositivos') || cmd === '/dispositivos') {
+    reply = `
+      <b>🔌 Dispositivos</b><br><br>
+      Total registrados: ${devices.length}<br>
+      <div style="margin-top:12px; display:flex; flex-direction:column; gap:8px;">
+        <button class="btn btn-primary" onclick="window.executeBotAction('nav_devices')" style="justify-content:center;">Ir a Dispositivos</button>
+        <button class="btn" onclick="window.executeBotAction('devices_scan')" style="justify-content:center;">Escanear Red</button>
+      </div>
+    `;
+  } else {
+    reply = `
+      <b>🤖 TADASHY Assistant</b><br>
+      <i>Modo Comandos Rápidos</i><br><br>
+      <div style="display:flex; flex-direction:column; gap:8px;">
+        <button class="btn" onclick="sendAiMessage('/dispositivos')" style="justify-content:center;">🔌 Dispositivos</button>
+        <button class="btn" onclick="sendAiMessage('/robot')" style="justify-content:center;">🤖 Brazo Robótico</button>
+        <button class="btn" onclick="window.executeBotAction('nav_auto')" style="justify-content:center;">⚡ Automatizaciones</button>
+        <button class="btn" onclick="window.executeBotAction('nav_mqtt')" style="justify-content:center;">📡 Estado MQTT</button>
+      </div>
+    `;
+  }
+  
+  appendAiChatMessage('assistant', reply);
+  if (options?.speak) speakAi("Menú rápido mostrado.");
+  return reply;
+}
+
+window.executeBotAction = function(action) {
+  updateAiMetrics(1, 50);
+  switch (action) {
+    case 'robot_start': publish('brazo/posicion', 'start'); addLog('Bot: Brazo a posición Inicio', 'ok'); appendAiChatMessage('assistant', 'Brazo enviado a posición de inicio.'); break;
+    case 'robot_rest': publish('brazo/posicion', 'rest'); addLog('Bot: Brazo a posición Reposo', 'inf'); appendAiChatMessage('assistant', 'Brazo enviado a reposo.'); break;
+    case 'robot_open': publish('brazo/servo/4', '0'); appendAiChatMessage('assistant', 'Pinza abierta.'); break;
+    case 'robot_close': publish('brazo/servo/4', '180'); appendAiChatMessage('assistant', 'Pinza cerrada.'); break;
+    case 'nav_devices': switchView('devices'); break;
+    case 'devices_scan': discoverDevices(); appendAiChatMessage('assistant', 'Escaneo de red iniciado.'); break;
+    case 'nav_auto': switchView('automations'); break;
+    case 'nav_mqtt': switchView('mqtt'); break;
+  }
+};
+
 async function sendAiMessage(messageText, options = {}) {
   const messagesContainer = $('ai-chat-messages');
   appendAiChatMessage('user', messageText);
+  
+  const txtLower = messageText.toLowerCase().trim();
+  if (txtLower.startsWith('/') || ['comandos', 'menu', 'ayuda'].includes(txtLower)) {
+    return handleQuickCommand(txtLower, options);
+  }
+
   
   const assistantBubble = appendAiChatMessage('assistant', '');
   const loadingEl = document.createElement('span');
@@ -1031,6 +1130,27 @@ function bindEvents() {
     input.value = '';
     sendAiMessage(txt);
   });
+
+  if ($('ptt-btn')) {
+    const startPtt = () => {
+      initVoiceAssistant();
+      pttActive = true;
+      try { voiceRecognition.start(); } catch (e) {}
+      updateVoiceStatus('🎙️ Escuchando...', true);
+    };
+    const stopPtt = () => {
+      pttActive = false;
+      if (voiceRecognition && !voiceEnabled) {
+        voiceRecognition.stop();
+      }
+      updateVoiceStatus(voiceEnabled ? 'Escuchando · Hey TADASHY' : 'Voz lista');
+    };
+    $('ptt-btn').addEventListener('mousedown', startPtt);
+    $('ptt-btn').addEventListener('mouseup', stopPtt);
+    $('ptt-btn').addEventListener('mouseleave', stopPtt);
+    $('ptt-btn').addEventListener('touchstart', (e) => { e.preventDefault(); startPtt(); });
+    $('ptt-btn').addEventListener('touchend', (e) => { e.preventDefault(); stopPtt(); });
+  }
 
   $('nav-tabs').addEventListener('click', (event) => {
     const button = event.target.closest('.nav-btn');

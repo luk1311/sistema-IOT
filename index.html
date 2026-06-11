@@ -187,8 +187,9 @@
                 </div>
                 <div class="flex-row">
                   <span id="voice-status" style="font-size: 11px; color: var(--text-muted);">Voz lista · Hey TADASHY</span>
-                  <button id="voice-toggle-btn" class="btn"><span class="material-symbols-outlined">mic</span></button>
-                  <button id="handsfree-toggle-btn" class="btn"><span class="material-symbols-outlined">headset_mic</span></button>
+                  <button id="ptt-btn" class="btn" title="Push-to-Talk (Mantener presionado)"><span class="material-symbols-outlined">mic_external_on</span></button>
+                  <button id="voice-toggle-btn" class="btn" title="Escucha Continua"><span class="material-symbols-outlined">mic</span></button>
+                  <button id="handsfree-toggle-btn" class="btn" title="Manos Libres"><span class="material-symbols-outlined">headset_mic</span></button>
                 </div>
               </div>
               <div id="ai-chat-messages" style="flex: 1; padding: 24px; overflow-y: auto;">
@@ -216,6 +217,18 @@
               <p style="font-size: 12px; color: var(--text-muted); margin-bottom: 8px;">Endpoint Local:</p>
               <p id="ai-info-endpoint" style="font-family: monospace; font-size: 11px; color: var(--text-primary); margin-bottom: 24px; word-break: break-all;">http://localhost:11434</p>
               
+              <div style="background: rgba(0,0,0,0.3); border: 1px solid var(--border-glass); border-radius: var(--radius-md); padding: 12px; margin-bottom: 24px;">
+                <h4 style="font-size: 12px; color: var(--text-muted); margin-bottom: 8px;">Ahorro por Comandos (LLM Bypassed)</h4>
+                <div class="flex-row" style="justify-content: space-between; margin-bottom: 4px;">
+                  <span style="font-size: 13px;">Consultas Evitadas:</span>
+                  <span id="ai-calls-saved" style="font-weight: 600; color: var(--accent-ai);">0</span>
+                </div>
+                <div class="flex-row" style="justify-content: space-between;">
+                  <span style="font-size: 13px;">Tokens Ahorrados:</span>
+                  <span id="ai-tokens-saved" style="font-weight: 600; color: var(--accent-online);">~0</span>
+                </div>
+              </div>
+
               <h4 style="font-size: 14px; color: var(--text-primary); margin-bottom: 12px; border-bottom: 1px solid var(--border-glass); padding-bottom: 8px;">Capacidades Integradas</h4>
               <div id="ai-tools-list" style="display: flex; flex-direction: column; gap: 8px; max-height: 350px; overflow-y: auto;">
                 <!-- Tools injected by JS -->
@@ -349,6 +362,6 @@
 
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/mqtt/dist/mqtt.min.js"></script>
-  <script src="script.js?v=3"></script>
+  <script src="script.js?v=4"></script>
 </body>
 </html>
