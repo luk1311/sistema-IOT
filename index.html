@@ -8,7 +8,7 @@
   <meta property="og:title" content="TADASHY IoT" />
   <meta property="og:description" content="TADASHY IoT Command Center" />
   <title>TADASHY | IoT Command Center</title>
-  <link rel="stylesheet" href="main.css?v=6" />
+  <link rel="stylesheet" href="main.css?v=7" />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Outfit:wght@600;700&display=swap" rel="stylesheet">
   <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@24,400,0,0" rel="stylesheet" />
 </head>
@@ -196,13 +196,13 @@
           <div class="col-8">
             <div class="glass-panel" style="display: flex; flex-direction: column; height: 600px;">
               <div
-                style="padding: 16px 24px; border-bottom: 1px solid var(--border-glass); display: flex; justify-content: space-between; align-items: center; background: rgba(0,0,0,0.2);">
-                <div class="flex-row">
+                style="padding: 16px 24px; border-bottom: 1px solid var(--border-glass); display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; background: rgba(0,0,0,0.2);">
+                <div class="flex-row" style="flex-wrap: wrap;">
                   <h4 style="color: var(--accent-ai); font-size: 16px;">TADASHY_AI</h4>
                   <span id="ai-model-badge"
                     style="font-size: 10px; color: var(--accent-online); letter-spacing: 0.1em; text-transform: uppercase;">ONLINE</span>
                 </div>
-                <div class="flex-row">
+                <div class="flex-row" style="flex-wrap: wrap;">
                   <span id="voice-status" style="font-size: 11px; color: var(--text-muted);">Voz lista · Hey
                     TADASHY</span>
                   <button id="ptt-btn" class="btn" title="Push-to-Talk (Mantener presionado)"><span
