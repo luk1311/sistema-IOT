@@ -501,7 +501,7 @@ async function loadUsers() {
   try {
     const data = await api('/users');
     users = data.users || [];
-    $('user-total').textContent = users.length;
+    if ($('user-total')) $('user-total').textContent = users.length;
     
     if (users.length === 0) {
       $('user-list').innerHTML = `<div class="empty-state">No hay operadores registrados</div>`;
