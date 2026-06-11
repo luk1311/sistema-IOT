@@ -455,6 +455,9 @@ function startIotMqttBridge() {
 async function handleApi(req, res, url) {
   const db = readDb();
   const method = req.method;
+  if (url.pathname.endsWith('/') && url.pathname.length > 1) {
+    url.pathname = url.pathname.slice(0, -1);
+  }
   console.log(`[DEBUG] handleApi hit: method=${method}, pathname=${url.pathname}, originalUrl=${req.originalUrl}`);
 
   if (method === 'GET' && url.pathname === '/api/iot/events') {
