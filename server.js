@@ -253,6 +253,11 @@ function writeDb(db, forceSync = false) {
   // Local file write completely removed. Data persistence is handled via direct Firestore calls in the endpoints.
 }
 
+function hashPassword(password, salt = crypto.randomBytes(16).toString('hex')) {
+  const hash = crypto.pbkdf2Sync(password, salt, 120000, 32, 'sha256').toString('hex');
+  return { salt, hash };
+}
+
 function verifyPassword(password, user) {
   const { hash } = hashPassword(password, user.salt);
   const a = Buffer.from(hash, 'hex');
