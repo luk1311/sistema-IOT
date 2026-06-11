@@ -931,6 +931,29 @@ async function handleApi(req, res, url) {
     return send(res, 200, { user: publicUser(user) });
   }
 
+  if (method === 'DELETE' && userMatch) {
+    const allowed = requireAuth(req, db, 'manage_users');
+    if (allowed.error) return send(res, allowed.status, { error: allowed.error });
+    const userIndex = db.users.findIndex((item) => item.id === userMatch[1]);
+    if (userIndex === -1) return send(res, 404, { error: 'Usuario no encontrado' });
+    
+    const user = db.users[userIndex];
+    if (user.id === auth.user.id) {
+      return send(res, 400, { error: 'No puedes eliminar tu propio usuario' });
+    }
+    if (user.role === 'super_admin') {
+      const activeSuperAdmins = db.users.filter((u) => u.role === 'super_admin' && u.active);
+      if (activeSuperAdmins.length <= 1) {
+        return send(res, 400, { error: 'No puedes eliminar al único Super Admin' });
+      }
+    }
+    
+    db.users.splice(userIndex, 1);
+    addHistory(db, auth.user, 'user', `Eliminó usuario ${user.username}`);
+    writeDb(db);
+    return send(res, 200, { ok: true });
+  }
+
   if (route === 'GET /api/history') {
     const allowed = requireAuth(req, db, 'view_history');
     if (allowed.error) return send(res, allowed.status, { error: allowed.error });
