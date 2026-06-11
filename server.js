@@ -455,6 +455,7 @@ function startIotMqttBridge() {
 async function handleApi(req, res, url) {
   const db = readDb();
   const method = req.method;
+  console.log(`[DEBUG] handleApi hit: method=${method}, pathname=${url.pathname}, originalUrl=${req.originalUrl}`);
 
   if (method === 'GET' && url.pathname === '/api/iot/events') {
     const auth = requireEventAuth(req, db, 'view_dashboard');
