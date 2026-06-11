@@ -178,24 +178,6 @@
       <!-- VIEW: AI CHAT -->
       <section id="view-ai" class="view">
         <div class="dashboard-grid">
-          <div class="col-4 flex-column">
-            <div class="glass-panel panel-p-lg">
-              <div class="flex-row" style="margin-bottom: 16px;">
-                <span class="material-symbols-outlined" style="color: var(--accent-ai); font-size: 32px;">psychology</span>
-                <div>
-                  <h4 style="color: var(--text-primary); font-size: 18px;">Información del Nodo</h4>
-                  <span id="ai-info-model" style="font-size: 11px; color: var(--accent-online); text-transform: uppercase; font-weight: 600;">Mistral</span>
-                </div>
-              </div>
-              <p style="font-size: 12px; color: var(--text-muted); margin-bottom: 8px;">Endpoint Local:</p>
-              <p id="ai-info-endpoint" style="font-family: monospace; font-size: 11px; color: var(--text-primary); margin-bottom: 24px; word-break: break-all;">http://localhost:11434</p>
-              
-              <h4 style="font-size: 14px; color: var(--text-primary); margin-bottom: 12px; border-bottom: 1px solid var(--border-glass); padding-bottom: 8px;">Capacidades Integradas</h4>
-              <div id="ai-tools-list" style="display: flex; flex-direction: column; gap: 8px; max-height: 350px; overflow-y: auto;">
-                <!-- Tools injected by JS -->
-              </div>
-            </div>
-          </div>
           <div class="col-8">
             <div class="glass-panel" style="display: flex; flex-direction: column; height: 600px;">
               <div style="padding: 16px 24px; border-bottom: 1px solid var(--border-glass); display: flex; justify-content: space-between; align-items: center; background: rgba(0,0,0,0.2);">
@@ -220,6 +202,24 @@
                   </button>
                 </div>
               </form>
+            </div>
+          </div>
+          <div class="col-4 flex-column">
+            <div class="glass-panel panel-p-lg">
+              <div class="flex-row" style="margin-bottom: 16px;">
+                <span class="material-symbols-outlined" style="color: var(--accent-ai); font-size: 32px;">psychology</span>
+                <div>
+                  <h4 style="color: var(--text-primary); font-size: 18px;">Información del Nodo</h4>
+                  <span id="ai-info-model" style="font-size: 11px; color: var(--accent-online); text-transform: uppercase; font-weight: 600;">Mistral</span>
+                </div>
+              </div>
+              <p style="font-size: 12px; color: var(--text-muted); margin-bottom: 8px;">Endpoint Local:</p>
+              <p id="ai-info-endpoint" style="font-family: monospace; font-size: 11px; color: var(--text-primary); margin-bottom: 24px; word-break: break-all;">http://localhost:11434</p>
+              
+              <h4 style="font-size: 14px; color: var(--text-primary); margin-bottom: 12px; border-bottom: 1px solid var(--border-glass); padding-bottom: 8px;">Capacidades Integradas</h4>
+              <div id="ai-tools-list" style="display: flex; flex-direction: column; gap: 8px; max-height: 350px; overflow-y: auto;">
+                <!-- Tools injected by JS -->
+              </div>
             </div>
           </div>
         </div>

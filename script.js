@@ -504,7 +504,10 @@ async function loadUsers() {
   $('user-list').innerHTML = users.map((user) => `
     <div class="item-row">
       <div><div class="row-title">${escapeHtml(user.username)}</div><div class="row-meta">${escapeHtml(roleLabel(user.role))} · ${user.active ? 'activo' : 'inactivo'}</div></div>
-      <button class="ghost-btn" data-toggle-user="${user.id}">${user.active ? 'Desactivar' : 'Activar'}</button>
+      <div class="flex-row">
+        <button class="ghost-btn" data-toggle-user="${user.id}">${user.active ? 'Desactivar' : 'Activar'}</button>
+        <button class="ghost-btn" style="color: var(--accent-offline-strong); padding: 4px;" data-delete-user="${user.id}"><span class="material-symbols-outlined" style="font-size: 18px;">delete</span></button>
+      </div>
     </div>`).join('');
 }
 
@@ -540,6 +543,18 @@ async function toggleUser(id) {
     addLog(`Usuario ${user.username} ${!user.active ? 'activado' : 'desactivado'}`, 'ok');
   } catch (error) {
     addLog(`Error al modificar usuario: ${error.message}`, 'err');
+  }
+}
+
+async function deleteUser(id) {
+  if (!confirm('¿Seguro que deseas eliminar este operador permanentemente?')) return;
+  try {
+    await api(`/users/${id}`, { method: 'DELETE' });
+    await loadUsers();
+    saveHistory('user', 'Usuario eliminado');
+    addLog('Operador eliminado', 'ok');
+  } catch (error) {
+    addLog(`Error al eliminar usuario: ${error.message}`, 'err');
   }
 }
 
@@ -999,6 +1014,9 @@ function bindEvents() {
 
     const toggle = event.target.closest('[data-toggle-user]');
     if (toggle) toggleUser(toggle.dataset.toggleUser);
+
+    const delUser = event.target.closest('[data-delete-user]');
+    if (delUser) deleteUser(delUser.dataset.deleteUser);
 
     const deviceCard = event.target.closest('.device-card');
     if (deviceCard) {
