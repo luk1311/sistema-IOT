@@ -12,25 +12,27 @@
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Outfit:wght@500;600;700&display=swap');
+
     :root {
-      --bg: #0e0b1a;
-      --panel: #17112e;
-      --panel-2: #1e1638;
-      --line: rgba(160, 130, 255, 0.18);
-      --line-strong: rgba(160, 130, 255, 0.34);
-      --text: #e0d9f7;
-      --muted: #9d8ec7;
-      --dim: #7c6aaa;
+      --bg: #09090e;
+      --panel: rgba(19, 18, 27, 0.6);
+      --panel-2: rgba(255, 255, 255, 0.03);
+      --line: rgba(255, 255, 255, 0.08);
+      --line-strong: rgba(124, 106, 255, 0.3);
+      --text: #ffffff;
+      --muted: rgba(255, 255, 255, 0.6);
+      --dim: rgba(255, 255, 255, 0.4);
       --accent: #7c6aff;
       --accent-2: #3ecf8e;
-      --warn: #f0b429;
-      --err: #f87191;
+      --warn: #ffb800;
+      --err: #ff4d4d;
     }
 
     body {
       min-height: 100vh;
       overflow: hidden;
-      font-family: Arial, sans-serif;
+      font-family: 'Inter', sans-serif;
       background: var(--bg);
       color: var(--text);
     }
