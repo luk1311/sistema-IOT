@@ -887,7 +887,7 @@ function handleQuickCommand(cmd, options) {
     `;
   }
   
-  appendAiChatMessage('assistant', reply);
+  appendAiChatMessage('assistant', reply, true);
   if (options?.speak) speakAi("Menú rápido mostrado.");
   return reply;
 }
@@ -997,18 +997,22 @@ async function sendAiMessage(messageText, options = {}) {
   }
 }
 
-function appendAiChatMessage(role, content) {
+function appendAiChatMessage(role, content, isHtml = false) {
   const container = $('ai-chat-messages');
   const bubble = document.createElement('div');
   bubble.className = `chat-bubble bubble-${role}`;
   
   const avatar = document.createElement('div');
   avatar.className = `chat-avatar avatar-${role}`;
-  avatar.innerHTML = role === 'user' ? '<i class="ti ti-user"></i>' : '<i class="ti ti-brain"></i>';
+  avatar.innerHTML = role === 'user' ? '<span class="material-symbols-outlined" style="font-size:18px;">person</span>' : '<span class="material-symbols-outlined" style="font-size:18px;">smart_toy</span>';
   
   const body = document.createElement('div');
   body.className = 'chat-body';
-  body.textContent = content;
+  if (isHtml) {
+    body.innerHTML = content;
+  } else {
+    body.textContent = content;
+  }
   
   bubble.appendChild(avatar);
   bubble.appendChild(body);
