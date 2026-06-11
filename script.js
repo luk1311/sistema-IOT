@@ -43,8 +43,31 @@ const $ = (id) => document.getElementById(id);
 async function api(path, options = {}) {
   const headers = { 'Content-Type': 'application/json', ...(options.headers || {}) };
   if (auth?.token) headers.Authorization = `Bearer ${auth.token}`;
-  const res = await fetch(API + path, { ...options, headers });
+  
+  let res;
+  try {
+    res = await fetch(API + path, { ...options, headers });
+    if ($('api-badge')) {
+      $('api-badge').className = 'badge badge-online';
+      $('api-badge').innerHTML = '<div class="status-pulse" style="background: var(--accent-online);"></div> API Online';
+    }
+  } catch (netErr) {
+    if ($('api-badge')) {
+      $('api-badge').className = 'badge badge-offline';
+      $('api-badge').innerHTML = '<div class="status-pulse"></div> API Offline';
+    }
+    throw new Error('API Offline o inalcanzable');
+  }
+
   const data = await res.json().catch(() => ({}));
+  
+  if (res.status === 401 || res.status === 403) {
+    if (path !== '/auth/login' && auth) {
+      logout();
+      throw new Error('Sesión expirada. Por favor, inicia sesión de nuevo.');
+    }
+  }
+  
   if (!res.ok) throw new Error(data.error || 'Error de servidor');
   return data;
 }
@@ -517,7 +540,7 @@ async function loadUsers() {
         </div>
       </div>`).join('');
   } catch (err) {
-    $('user-list').innerHTML = `<div class="empty-state" style="color: var(--accent-offline-strong);">API Offline. No se pudieron cargar los operadores.</div>`;
+    $('user-list').innerHTML = `<div class="empty-state" style="color: var(--accent-offline-strong);">Error al cargar operadores: ${escapeHtml(err.message)}</div>`;
   }
 }
 
@@ -585,7 +608,7 @@ async function loadAutomations() {
         <button class="secondary-btn" data-run-auto="${item.id}"><span class="material-symbols-outlined" style="font-size: 16px;">play_arrow</span> Ejecutar</button>
       </div>`).join('');
   } catch (err) {
-    $('automation-list').innerHTML = `<div class="empty-state" style="color: var(--accent-offline-strong);">API Offline. No se pudieron cargar las rutinas.</div>`;
+    $('automation-list').innerHTML = `<div class="empty-state" style="color: var(--accent-offline-strong);">Error al cargar rutinas: ${escapeHtml(err.message)}</div>`;
   }
 }
 
