@@ -1177,6 +1177,11 @@ function bindEvents() {
     const mode = event.target.closest('[data-mode]');
     if (mode) setModo(mode.dataset.mode);
 
+    if (event.target.closest('#btn-manual')) setModo('manual');
+    if (event.target.closest('#btn-auto')) setModo('auto');
+    if (event.target.closest('#reset-btn')) resetAll();
+    if (event.target.closest('#btn-vision')) window.open('Brazo_vision.html', '_blank');
+
     const run = event.target.closest('[data-run-auto]');
     if (run) runAutomation(run.dataset.runAuto);
 
