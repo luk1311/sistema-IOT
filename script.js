@@ -680,6 +680,27 @@ async function loadHistory() {
   }
 }
 
+async function clearHistory() {
+  const list = $('history-list');
+  if (list) {
+    list.innerHTML = '<div style="padding: 32px; text-align: center; color: var(--text-muted);"><span class="material-symbols-outlined" style="font-size: 32px; animation: pulse 1s infinite;">delete</span><div style="margin-top: 12px; font-family: \'Outfit\';">Limpiando registros...</div></div>';
+  }
+  
+  await new Promise(r => setTimeout(r, 400));
+  
+  try {
+    await api('/history', { method: 'DELETE' });
+  } catch (e) {
+    console.warn('Backend does not support DELETE /history, clearing locally');
+  }
+  
+  historyItems = [];
+  if (list) {
+    list.innerHTML = '<div style="padding: 24px; text-align: center; color: var(--text-muted);">No hay registros.</div>';
+  }
+  addLog('Historial limpiado', 'info');
+}
+
 function wait(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -1142,7 +1163,7 @@ function bindEvents() {
   });
   $('automation-form').addEventListener('submit', createAutomation);
   $('user-form').addEventListener('submit', createUser);
-  $('refresh-history').addEventListener('click', loadHistory);
+  $('clear-history').addEventListener('click', clearHistory);
   $('discover-devices-btn').addEventListener('click', discoverDevices);
   $('voice-toggle-btn')?.addEventListener('click', toggleVoice);
   $('handsfree-toggle-btn')?.addEventListener('click', toggleHandsFree);
