@@ -656,14 +656,24 @@ async function runAutomation(id) {
 }
 
 async function loadHistory() {
-  const data = await api('/history');
-  historyItems = data.history;
-  $('history-list').innerHTML = historyItems.map((item) => `
-    <div class="history-row">
-      <span class="row-meta">${new Date(item.createdAt).toLocaleString('es-CO')}</span>
-      <span class="topic">${escapeHtml(item.type)}</span>
-      <span>${escapeHtml(item.detail)}</span>
-    </div>`).join('');
+  const list = $('history-list');
+  if (list) {
+    list.innerHTML = '<div style="padding: 32px; text-align: center; color: var(--text-muted);"><span class="material-symbols-outlined" style="font-size: 32px; animation: pulse 1s infinite;">history</span><div style="margin-top: 12px; font-family: \'Outfit\';">Obteniendo registros...</div></div>';
+  }
+  const data = await api('/history?t=' + Date.now());
+  historyItems = data.history || [];
+  if (list) {
+    if (historyItems.length === 0) {
+      list.innerHTML = '<div style="padding: 24px; text-align: center; color: var(--text-muted);">No hay registros.</div>';
+    } else {
+      list.innerHTML = historyItems.map((item) => `
+        <div class="history-row">
+          <span class="row-meta">${new Date(item.createdAt).toLocaleString('es-CO')}</span>
+          <span class="topic">${escapeHtml(item.type)}</span>
+          <span>${escapeHtml(item.detail)}</span>
+        </div>`).join('');
+    }
+  }
 }
 
 function wait(ms) {
