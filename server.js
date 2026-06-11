@@ -210,22 +210,40 @@ function ensureDb() {
   writeDb(db);
 }
 
+let dbCache = null;
+let dbWriteTimeout = null;
+
 function readDb() {
+  if (dbCache) return dbCache;
   ensureDb();
-  const db = JSON.parse(fs.readFileSync(DB_FILE, 'utf8'));
+  dbCache = JSON.parse(fs.readFileSync(DB_FILE, 'utf8'));
   let migrated = false;
-  db.users.forEach((user) => {
+  dbCache.users.forEach((user) => {
     if (ROLE_ALIASES[user.role]) {
       user.role = ROLE_ALIASES[user.role];
       migrated = true;
     }
   });
-  if (migrated) writeDb(db);
-  return db;
+  if (migrated) writeDb(dbCache, true);
+  return dbCache;
 }
 
-function writeDb(db) {
-  fs.writeFileSync(DB_FILE, JSON.stringify(db, null, 2));
+function writeDb(db, forceSync = false) {
+  dbCache = db;
+  if (forceSync) {
+    fs.writeFileSync(DB_FILE, JSON.stringify(db, null, 2));
+    if (dbWriteTimeout) clearTimeout(dbWriteTimeout);
+    dbWriteTimeout = null;
+  } else {
+    if (!dbWriteTimeout) {
+      dbWriteTimeout = setTimeout(() => {
+        fs.writeFile(DB_FILE, JSON.stringify(dbCache, null, 2), (err) => {
+          if (err) console.error('[DB] Error writing db.json:', err);
+        });
+        dbWriteTimeout = null;
+      }, 1000);
+    }
+  }
 }
 
 function hashPassword(password, salt = crypto.randomBytes(16).toString('hex')) {

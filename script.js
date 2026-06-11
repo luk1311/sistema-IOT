@@ -1178,6 +1178,15 @@ function bindEvents() {
   });
 
   document.addEventListener('click', (event) => {
+    // Cierre del sidebar en movil si se hace click fuera
+    const sidebar = document.querySelector('.sidebar');
+    const mobileMenuBtn = document.getElementById('mobile-menu-btn');
+    if (sidebar && sidebar.classList.contains('open')) {
+      if (!sidebar.contains(event.target) && !mobileMenuBtn.contains(event.target)) {
+        sidebar.classList.remove('open');
+      }
+    }
+
     const preset = event.target.closest('[data-servo][data-angle]');
     if (preset) irA(Number(preset.dataset.servo), Number(preset.dataset.angle));
 
