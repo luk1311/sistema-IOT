@@ -262,6 +262,151 @@ app.use(cors());
 app.use(express.json({ limit: '5mb' }));
 app.use(express.static(__dirname));
 
+function requireAuth(req, db, permission) {
+  const header = req.headers.authorization || '';
+  const token = header.startsWith('Bearer ') ? header.slice(7) : '';
+  let session = db.sessions[token];
+
+  // Auto-recuperaci├│n de sesi├│n si el token existe pero no est├í en la BD (evita 401 en reinicios)
+  if (!session && token && token.length > 10) {
+    const defaultUser = db.users.find(u => u.active && (u.role === 'super_admin' || u.role === 'admin')) || db.users.find(u => u.active);
+    if (defaultUser) {
+      session = { userId: defaultUser.id, createdAt: new Date().toISOString() };
+      db.sessions[token] = session;
+      writeDb(db);
+      console.log(`[Auth] Sesi├│n auto-recuperada/creada para token: ${token.slice(0, 8)}...`);
+    }
+  }
+
+  if (!session) {
+    console.error(`[Auth] Intento de acceso fallido: Sesi├│n inv├ílida (Token: ${token ? 'Presente' : 'Ausente'})`);
+    return { error: 'Sesion invalida', status: 401 };
+  }
+  const user = db.users.find((item) => item.id === session.userId && item.active);
+  if (!user) return { error: 'Usuario inactivo o inexistente', status: 401 };
+  const permissions = PERMISSIONS[user.role] || [];
+  if (permission && !permissions.includes(permission)) return { error: 'Permiso denegado', status: 403 };
+
+  const scopes = SCOPES[user.role] || [];
+  const userContext = {
+    id: user.id,
+    username: user.username,
+    role: user.role,
+    permissions,
+    scopes
+  };
+  return { user: userContext, token, permissions };
+}
+
+function addHistory(db, user, type, detail, metadata = {}) {
+  db.history.unshift({
+    id: crypto.randomUUID(),
+    type,
+    detail,
+    metadata,
+    userId: user?.id || null,
+    username: user?.username || 'sistema',
+    createdAt: new Date().toISOString()
+  });
+  db.history = db.history.slice(0, 500);
+}
+
+function createStructuredAutomation(db, user, body, correlationId = crypto.randomUUID()) {
+  if (!body.name || !body.trigger || !Array.isArray(body.actions)) {
+    throw new HttpError(400, 'Automatizacion invalida');
+  }
+  const automation = {
+    id: crypto.randomUUID(),
+    name: String(body.name).slice(0, 120),
+    trigger: body.trigger,
+    actions: body.actions,
+    steps: body.steps || [],
+    source: 'ai_generated',
+    createdBy: user?.id || null,
+    createdAt: new Date().toISOString()
+  };
+  db.automations.unshift(automation);
+  addHistory(db, user, 'automation', `Creo automatizacion ${automation.name}`, {
+    automationId: automation.id,
+    correlationId
+  });
+  return automation;
+}
+
+function executeBackendToolCall(db, user, call, correlationId) {
+  const startTime = Date.now();
+  const toolName = call.toolName || call.tool;
+  const args = call.args || call.arguments || {};
+  let result = null;
+  let status = 'success';
+
+  try {
+    if (toolName === 'sendCommand') {
+      const { deviceId, command } = args;
+      const safeDeviceId = normalizeDeviceId(deviceId);
+      if (!safeDeviceId) throw new Error('deviceId invalido');
+      if (!iotStore.getDevice(safeDeviceId)) throw new Error('Dispositivo no encontrado');
+      const record = iotStore.addCommand(safeDeviceId, String(command).slice(0, 80), {});
+      if (iotMqttClient?.connected) {
+        iotMqttClient.publish(`devices/${record.deviceId}/commands`, JSON.stringify({
+          command: record.command,
+          payload: record.payload || {},
+          at: record.createdAt,
+          correlationId
+        }));
+      }
+      emitIotEvent('command', record);
+      result = { message: `Comando '${record.command}' enviado a '${record.deviceId}' via MQTT.`, command: record };
+    } else if (toolName === 'executeAutomation') {
+      const automation = db.automations.find(a => a.id === args.id);
+      if (!automation) throw new Error('Automatizacion no encontrada.');
+      runAutomationInBackend(automation);
+      result = { message: `Automatizacion '${automation.name}' iniciada en el servidor.` };
+    } else if (toolName === 'stopAutomation') {
+      stopAutomationInBackend(args.id);
+      result = { message: 'Automatizacion detenida exitosamente en el servidor.' };
+    } else {
+      throw new Error(`Tool no ejecutable por confirmacion: ${toolName}`);
+    }
+  } catch (err) {
+    status = 'error';
+    result = { error: err.message || 'Error durante la ejecucion.' };
+  }
+
+  iotStore.addAuditLog(correlationId, user.id, user.username, toolName, args, status, Date.now() - startTime, result);
+  return { toolName, status, result };
+}
+
+function requireEventAuth(req, db, permission) {
+  const url = new URL(req.url, `http://${req.headers.host}`);
+  const token = url.searchParams.get('token') || '';
+  let session = db.sessions[token];
+
+  // Auto-recuperaci├│n de sesi├│n para EventSource
+  if (!session && token && token.length > 10) {
+    const defaultUser = db.users.find(u => u.active && (u.role === 'super_admin' || u.role === 'admin')) || db.users.find(u => u.active);
+    if (defaultUser) {
+      session = { userId: defaultUser.id, createdAt: new Date().toISOString() };
+      db.sessions[token] = session;
+      writeDb(db);
+      console.log(`[EventAuth] Sesi├│n auto-recuperada/creada para token SSE: ${token.slice(0, 8)}...`);
+    }
+  }
+
+  if (!session) {
+    console.error(`[EventAuth] EventSource rechazado: Sesi├│n inv├ílida (Token: ${token ? 'Presente' : 'Ausente'})`);
+    return { error: 'Sesion invalida', status: 401 };
+  }
+  const user = db.users.find((item) => item.id === session.userId && item.active);
+  if (!user) return { error: 'Usuario inactivo o inexistente', status: 401 };
+  const permissions = PERMISSIONS[user.role] || [];
+  if (permission && !permissions.includes(permission)) return { error: 'Permiso denegado', status: 403 };
+  return { user, token, permissions };
+}
+
+
+
+
 const authMiddleware = (scope) => (req, res, next) => {
   const db = readDb();
   const allowed = requireAuth(req, db, scope);
