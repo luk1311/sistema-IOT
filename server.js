@@ -1,4 +1,7 @@
 const http = require('http');
+const express = require('express');
+const cors = require('cors');
+const app = express();
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
@@ -250,226 +253,31 @@ function publicUser(user) {
 }
 
 function send(res, status, data) {
-  const body = JSON.stringify(data);
-  res.writeHead(status, {
-    'Content-Type': 'application/json; charset=utf-8',
-    'Content-Length': Buffer.byteLength(body)
-  });
-  res.end(body);
+  if (res.headersSent) return;
+  res.status(status).json(data);
 }
 
-function parseBody(req) {
-  return new Promise((resolve, reject) => {
-    let raw = '';
-    req.on('data', (chunk) => {
-      raw += chunk;
-      if (raw.length > 1_000_000) {
-        reject(new HttpError(413, 'Payload demasiado grande'));
-        req.destroy();
-      }
-    });
-    req.on('end', () => {
-      if (!raw) return resolve({});
-      try {
-        resolve(JSON.parse(raw));
-      } catch {
-        reject(new HttpError(400, 'JSON inválido'));
-      }
-    });
-  });
-}
 
-function requireAuth(req, db, permission) {
-  const header = req.headers.authorization || '';
-  const token = header.startsWith('Bearer ') ? header.slice(7) : '';
-  let session = db.sessions[token];
+app.use(cors());
+app.use(express.json({ limit: '5mb' }));
+app.use(express.static(__dirname));
 
-  // Auto-recuperación de sesión si el token existe pero no está en la BD (evita 401 en reinicios)
-  if (!session && token && token.length > 10) {
-    const defaultUser = db.users.find(u => u.active && (u.role === 'super_admin' || u.role === 'admin')) || db.users.find(u => u.active);
-    if (defaultUser) {
-      session = { userId: defaultUser.id, createdAt: new Date().toISOString() };
-      db.sessions[token] = session;
-      writeDb(db);
-      console.log(`[Auth] Sesión auto-recuperada/creada para token: ${token.slice(0, 8)}...`);
-    }
+const authMiddleware = (scope) => (req, res, next) => {
+  const db = readDb();
+  const allowed = requireAuth(req, db, scope);
+  if (allowed.error) return res.status(allowed.status).json({ error: allowed.error });
+  req.user = allowed.user;
+  req.db = db;
+  next();
+};
+
+const rateLimitMiddleware = (limit, windowMs) => (req, res, next) => {
+  if (!checkRateLimit(req, limit, windowMs)) {
+    return res.status(429).json({ error: 'Demasiadas solicitudes al servidor.' });
   }
+  next();
+};
 
-  if (!session) {
-    console.error(`[Auth] Intento de acceso fallido: Sesión inválida (Token: ${token ? 'Presente' : 'Ausente'})`);
-    return { error: 'Sesion invalida', status: 401 };
-  }
-  const user = db.users.find((item) => item.id === session.userId && item.active);
-  if (!user) return { error: 'Usuario inactivo o inexistente', status: 401 };
-  const permissions = PERMISSIONS[user.role] || [];
-  if (permission && !permissions.includes(permission)) return { error: 'Permiso denegado', status: 403 };
-
-  const scopes = SCOPES[user.role] || [];
-  const userContext = {
-    id: user.id,
-    username: user.username,
-    role: user.role,
-    permissions,
-    scopes
-  };
-  return { user: userContext, token, permissions };
-}
-
-function addHistory(db, user, type, detail, metadata = {}) {
-  db.history.unshift({
-    id: crypto.randomUUID(),
-    type,
-    detail,
-    metadata,
-    userId: user?.id || null,
-    username: user?.username || 'sistema',
-    createdAt: new Date().toISOString()
-  });
-  db.history = db.history.slice(0, 500);
-}
-
-function createStructuredAutomation(db, user, body, correlationId = crypto.randomUUID()) {
-  if (!body.name || !body.trigger || !Array.isArray(body.actions)) {
-    throw new HttpError(400, 'Automatizacion invalida');
-  }
-  const automation = {
-    id: crypto.randomUUID(),
-    name: String(body.name).slice(0, 120),
-    trigger: body.trigger,
-    actions: body.actions,
-    steps: body.steps || [],
-    source: 'ai_generated',
-    createdBy: user?.id || null,
-    createdAt: new Date().toISOString()
-  };
-  db.automations.unshift(automation);
-  addHistory(db, user, 'automation', `Creo automatizacion ${automation.name}`, {
-    automationId: automation.id,
-    correlationId
-  });
-  return automation;
-}
-
-function executeBackendToolCall(db, user, call, correlationId) {
-  const startTime = Date.now();
-  const toolName = call.toolName || call.tool;
-  const args = call.args || call.arguments || {};
-  let result = null;
-  let status = 'success';
-
-  try {
-    if (toolName === 'sendCommand') {
-      const { deviceId, command } = args;
-      const safeDeviceId = normalizeDeviceId(deviceId);
-      if (!safeDeviceId) throw new Error('deviceId invalido');
-      if (!iotStore.getDevice(safeDeviceId)) throw new Error('Dispositivo no encontrado');
-      const record = iotStore.addCommand(safeDeviceId, String(command).slice(0, 80), {});
-      if (iotMqttClient?.connected) {
-        iotMqttClient.publish(`devices/${record.deviceId}/commands`, JSON.stringify({
-          command: record.command,
-          payload: record.payload || {},
-          at: record.createdAt,
-          correlationId
-        }));
-      }
-      emitIotEvent('command', record);
-      result = { message: `Comando '${record.command}' enviado a '${record.deviceId}' via MQTT.`, command: record };
-    } else if (toolName === 'executeAutomation') {
-      const automation = db.automations.find(a => a.id === args.id);
-      if (!automation) throw new Error('Automatizacion no encontrada.');
-      runAutomationInBackend(automation);
-      result = { message: `Automatizacion '${automation.name}' iniciada en el servidor.` };
-    } else if (toolName === 'stopAutomation') {
-      stopAutomationInBackend(args.id);
-      result = { message: 'Automatizacion detenida exitosamente en el servidor.' };
-    } else {
-      throw new Error(`Tool no ejecutable por confirmacion: ${toolName}`);
-    }
-  } catch (err) {
-    status = 'error';
-    result = { error: err.message || 'Error durante la ejecucion.' };
-  }
-
-  iotStore.addAuditLog(correlationId, user.id, user.username, toolName, args, status, Date.now() - startTime, result);
-  return { toolName, status, result };
-}
-
-function requireEventAuth(req, db, permission) {
-  const url = new URL(req.url, `http://${req.headers.host}`);
-  const token = url.searchParams.get('token') || '';
-  let session = db.sessions[token];
-
-  // Auto-recuperación de sesión para EventSource
-  if (!session && token && token.length > 10) {
-    const defaultUser = db.users.find(u => u.active && (u.role === 'super_admin' || u.role === 'admin')) || db.users.find(u => u.active);
-    if (defaultUser) {
-      session = { userId: defaultUser.id, createdAt: new Date().toISOString() };
-      db.sessions[token] = session;
-      writeDb(db);
-      console.log(`[EventAuth] Sesión auto-recuperada/creada para token SSE: ${token.slice(0, 8)}...`);
-    }
-  }
-
-  if (!session) {
-    console.error(`[EventAuth] EventSource rechazado: Sesión inválida (Token: ${token ? 'Presente' : 'Ausente'})`);
-    return { error: 'Sesion invalida', status: 401 };
-  }
-  const user = db.users.find((item) => item.id === session.userId && item.active);
-  if (!user) return { error: 'Usuario inactivo o inexistente', status: 401 };
-  const permissions = PERMISSIONS[user.role] || [];
-  if (permission && !permissions.includes(permission)) return { error: 'Permiso denegado', status: 403 };
-  return { user, token, permissions };
-}
-
-const deviceStateCache = new Map();
-
-function handleIotMqttMessage(topic, payloadBuffer) {
-  if (!iotStore) return;
-  const payloadText = payloadBuffer.toString();
-
-  // Filtro Anti-Saturación: Ignorar payloads idénticos en el mismo topic en un rango de 30s
-  const cacheKey = `${topic}::${payloadText}`;
-  const now = Date.now();
-  if (now - (deviceStateCache.get(cacheKey) || 0) < 30000) {
-    return;
-  }
-  deviceStateCache.set(cacheKey, now);
-  if (deviceStateCache.size > 2000) deviceStateCache.clear();
-
-  const match = topic.match(/^devices\/([^/]+)\/(status|telemetry|config)$/);
-  if (!match) return;
-
-  const deviceId = normalizeDeviceId(match[1]);
-  if (!deviceId) return;
-
-  const channel = match[2];
-  const payload = parseJson(payloadText, payloadText);
-
-  if (channel === 'status') {
-    const status = typeof payload === 'object' ? payload.status : payload;
-    const patch = typeof payload === 'object' ? validateDevicePatch(payload) : {};
-    const device = iotStore.registerDevice(deviceId, {
-      ...patch,
-      status: status === 'offline' ? 'offline' : 'online',
-      metadata: { source: 'mqtt', ...(patch.metadata || {}) }
-    });
-    emitIotEvent('device', device);
-    return;
-  }
-
-  if (channel === 'telemetry') {
-    const telemetry = iotStore.addTelemetry(deviceId, topic, payload);
-    emitIotEvent('telemetry', telemetry);
-    emitIotEvent('device', iotStore.getDevice(deviceId));
-    return;
-  }
-
-  if (channel === 'config' && typeof payload === 'object' && !Array.isArray(payload)) {
-    const device = iotStore.updateDevice(deviceId, { config: payload, metadata: { source: 'mqtt_config' } })
-      || iotStore.registerDevice(deviceId, { config: payload, metadata: { source: 'mqtt_config' } });
-    emitIotEvent('device', device);
-  }
-}
 
 function startIotMqttBridge() {
   if (!MQTT_URL) {
@@ -518,7 +326,7 @@ async function handleApi(req, res, url) {
   }
 
   if (method === 'POST' && url.pathname === '/api/auth/login') {
-    const body = await parseBody(req);
+    const body = req.body;
     const user = db.users.find((item) => item.username === body.username && item.active);
     if (!user || !body.password || !verifyPassword(body.password, user)) {
       return send(res, 401, { error: 'Usuario o contraseña incorrectos' });
@@ -560,7 +368,7 @@ async function handleApi(req, res, url) {
   if (route === 'POST /api/mqtt/publish') {
     const allowed = requireAuth(req, db, 'mqtt_publish');
     if (allowed.error) return send(res, allowed.status, { error: allowed.error });
-    const body = await parseBody(req);
+    const body = req.body;
     if (!body.topic || typeof body.payload === 'undefined') {
       return send(res, 400, { error: 'Falta topic o payload' });
     }
@@ -598,7 +406,7 @@ async function handleApi(req, res, url) {
     const allowed = requireAuth(req, db, 'manage_devices');
     if (allowed.error) return send(res, allowed.status, { error: allowed.error });
     if (!validDeviceId(deviceMatch[1])) return send(res, 400, { error: 'deviceId invalido' });
-    const body = await parseBody(req);
+    const body = req.body;
     const device = iotStore.updateDevice(deviceMatch[1], validateDevicePatch(body));
     if (!device) return send(res, 404, { error: 'Dispositivo no encontrado' });
     addHistory(db, auth.user, 'iot_device', `Actualizo dispositivo ${device.deviceId}`);
@@ -621,7 +429,7 @@ async function handleApi(req, res, url) {
     const allowed = requireAuth(req, db, 'manage_devices');
     if (allowed.error) return send(res, allowed.status, { error: allowed.error });
     if (!validDeviceId(commandMatch[1])) return send(res, 400, { error: 'deviceId invalido' });
-    const body = await parseBody(req);
+    const body = req.body;
     const command = String(body.command || '').trim();
     if (!command || command.length > 80) return send(res, 400, { error: 'Comando invalido' });
     const payload = body.payload && typeof body.payload === 'object' ? body.payload : {};
@@ -664,7 +472,7 @@ async function handleApi(req, res, url) {
   if (route === 'PATCH /api/ai/memory') {
     const allowed = requireAuth(req, db, 'memory:write');
     if (allowed.error) return send(res, allowed.status, { error: allowed.error });
-    const body = await parseBody(req);
+    const body = req.body;
     const sessionId = body.sessionId || 'default';
     const memory = iotStore.upsertMemoryProfile(allowed.user.id, sessionId, body.memory || {});
     addHistory(db, allowed.user, 'ai_memory', 'Actualizo memoria operacional', { sessionId });
@@ -681,7 +489,7 @@ async function handleApi(req, res, url) {
   if (route === 'POST /api/iot/groups') {
     const allowed = requireAuth(req, db, 'manage_devices');
     if (allowed.error) return send(res, allowed.status, { error: allowed.error });
-    const body = await parseBody(req);
+    const body = req.body;
     const group = iotStore.upsertGroup(body.name, body);
     addHistory(db, allowed.user, 'iot_group', `Guardo grupo ${group?.name || body.name}`);
     writeDb(db);
@@ -691,7 +499,7 @@ async function handleApi(req, res, url) {
   if (route === 'POST /api/iot/locations') {
     const allowed = requireAuth(req, db, 'manage_devices');
     if (allowed.error) return send(res, allowed.status, { error: allowed.error });
-    const body = await parseBody(req);
+    const body = req.body;
     const location = iotStore.upsertLocation(body.name, body);
     addHistory(db, allowed.user, 'iot_location', `Guardo ubicacion ${location?.name || body.name}`);
     writeDb(db);
@@ -724,7 +532,7 @@ async function handleApi(req, res, url) {
     const correlationId = crypto.randomUUID();
     res.setHeader('X-Correlation-ID', correlationId);
 
-    const body = await parseBody(req);
+    const body = req.body;
     if (!body.message) return send(res, 400, { error: 'El mensaje es requerido.' });
 
     const sessionId = body.sessionId || 'default';
@@ -797,7 +605,7 @@ async function handleApi(req, res, url) {
     const allowed = requireAuth(req, db, 'ai_chat');
     if (allowed.error) return send(res, allowed.status, { error: allowed.error });
 
-    const body = await parseBody(req);
+    const body = req.body;
     if (!body.token) return send(res, 400, { error: 'Token de confirmación requerido.' });
 
     const pending = aiService.pendingConfirmations.get(body.token);
@@ -922,7 +730,7 @@ async function handleApi(req, res, url) {
   if (route === 'POST /api/users') {
     const allowed = requireAuth(req, db, 'manage_users');
     if (allowed.error) return send(res, allowed.status, { error: allowed.error });
-    const body = await parseBody(req);
+    const body = req.body;
     if (!body.username || !body.password || !PERMISSIONS[body.role]) return send(res, 400, { error: 'Datos de usuario inválidos' });
     if (db.users.some((item) => item.username === body.username)) return send(res, 409, { error: 'El usuario ya existe' });
     const password = hashPassword(body.password);
@@ -945,7 +753,7 @@ async function handleApi(req, res, url) {
   if (method === 'PATCH' && userMatch) {
     const allowed = requireAuth(req, db, 'manage_users');
     if (allowed.error) return send(res, allowed.status, { error: allowed.error });
-    const body = await parseBody(req);
+    const body = req.body;
     const user = db.users.find((item) => item.id === userMatch[1]);
     if (!user) return send(res, 404, { error: 'Usuario no encontrado' });
 
@@ -981,7 +789,7 @@ async function handleApi(req, res, url) {
   }
 
   if (route === 'POST /api/history') {
-    const body = await parseBody(req);
+    const body = req.body;
     addHistory(db, auth.user, body.type || 'event', body.detail || 'Evento sin detalle', body.metadata || {});
     writeDb(db);
     return send(res, 201, { ok: true });
@@ -994,7 +802,7 @@ async function handleApi(req, res, url) {
   if (route === 'POST /api/automations') {
     const allowed = requireAuth(req, db, 'run_automations');
     if (allowed.error) return send(res, allowed.status, { error: allowed.error });
-    const body = await parseBody(req);
+    const body = req.body;
     if (!body.name || !Array.isArray(body.steps)) return send(res, 400, { error: 'Automatización inválida' });
     const automation = {
       id: crypto.randomUUID(),
@@ -1041,16 +849,28 @@ function serveStatic(req, res, url) {
   });
 }
 
-const server = http.createServer(async (req, res) => {
-  const url = new URL(req.url, `http://${req.headers.host}`);
+
+// Montar manejador heredado para no romper todo de golpe
+app.use('/api', async (req, res, next) => {
   try {
-    if (url.pathname.startsWith('/api/')) return await handleApi(req, res, url);
-    serveStatic(req, res, url);
-  } catch (error) {
-    const status = error.status || 500;
-    send(res, status, { error: error.message || 'Error interno' });
+    const url = new URL(req.url, `http://${req.headers.host}`);
+    await handleApi(req, res, url);
+  } catch (err) {
+    next(err);
   }
 });
+
+// Global Error Handler
+app.use((err, req, res, next) => {
+  console.error('[Global Error]:', err);
+  const status = err.status || 500;
+  if (!res.headersSent) {
+    res.status(status).json({ error: err.message || 'Error interno del servidor' });
+  }
+});
+
+const server = http.createServer(app);
+
 
 ensureDb();
 
