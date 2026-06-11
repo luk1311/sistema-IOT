@@ -449,6 +449,73 @@ const rateLimitMiddleware = (limit, windowMs) => (req, res, next) => {
 };
 
 
+const deviceStateCache = new Map();
+
+function validateDevicePatch(body = {}) {
+  const patch = {};
+  if (typeof body.name === 'string') patch.name = body.name.trim().slice(0, 80);
+  if (typeof body.type === 'string') patch.type = body.type.trim().slice(0, 40);
+  if (typeof body.firmware === 'string') patch.firmware = body.firmware.trim().slice(0, 80);
+  if (typeof body.ip === 'string') patch.ip = body.ip.trim().slice(0, 64);
+  if (Array.isArray(body.capabilities)) patch.capabilities = body.capabilities.slice(0, 30).map(String);
+  if (body.metadata && typeof body.metadata === 'object' && !Array.isArray(body.metadata)) patch.metadata = body.metadata;
+  if (body.config && typeof body.config === 'object' && !Array.isArray(body.config)) patch.config = body.config;
+  return patch;
+}
+
+function emitIotEvent(type, payload) {
+  const event = `event: ${type}\ndata: ${JSON.stringify({ type, payload, at: new Date().toISOString() })}\n\n`;
+  for (const res of eventClients) res.write(event);
+  eventBus.emit(type, payload);
+}
+
+function handleIotMqttMessage(topic, payloadBuffer) {
+  if (!iotStore) return;
+  const payloadText = payloadBuffer.toString();
+
+  const cacheKey = `${topic}::${payloadText}`;
+  const now = Date.now();
+  if (now - (deviceStateCache.get(cacheKey) || 0) < 30000) {
+    return;
+  }
+  deviceStateCache.set(cacheKey, now);
+  if (deviceStateCache.size > 2000) deviceStateCache.clear();
+
+  const match = topic.match(/^devices\/([^/]+)\/(status|telemetry|config)$/);
+  if (!match) return;
+
+  const deviceId = normalizeDeviceId(match[1]);
+  if (!deviceId) return;
+
+  const channel = match[2];
+  const payload = parseJson(payloadText, payloadText);
+
+  if (channel === 'status') {
+    const status = typeof payload === 'object' ? payload.status : payload;
+    const patch = typeof payload === 'object' ? validateDevicePatch(payload) : {};
+    const device = iotStore.registerDevice(deviceId, {
+      ...patch,
+      status: status === 'offline' ? 'offline' : 'online',
+      metadata: { source: 'mqtt', ...(patch.metadata || {}) }
+    });
+    emitIotEvent('device', device);
+    return;
+  }
+
+  if (channel === 'telemetry') {
+    const telemetry = iotStore.addTelemetry(deviceId, topic, payload);
+    emitIotEvent('telemetry', telemetry);
+    emitIotEvent('device', iotStore.getDevice(deviceId));
+    return;
+  }
+
+  if (channel === 'config' && typeof payload === 'object' && !Array.isArray(payload)) {
+    const device = iotStore.updateDevice(deviceId, { config: payload, metadata: { source: 'mqtt_config' } })
+      || iotStore.registerDevice(deviceId, { config: payload, metadata: { source: 'mqtt_config' } });
+    emitIotEvent('device', device);
+  }
+}
+
 function startIotMqttBridge() {
   if (!MQTT_URL) {
     console.log('IoT MQTT bridge desactivado: define MQTT_URL para descubrimiento automatico servidor.');
