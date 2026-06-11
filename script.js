@@ -1162,6 +1162,13 @@ function bindEvents() {
     if (button) switchView(button.dataset.view);
   });
 
+  const mobileMenuBtn = $('mobile-menu-btn');
+  if (mobileMenuBtn) {
+    mobileMenuBtn.addEventListener('click', () => {
+      document.querySelector('.sidebar').classList.toggle('open');
+    });
+  }
+
   document.addEventListener('input', (event) => {
     if (event.target.matches('input[type=range][data-servo]')) mover(Number(event.target.dataset.servo), event.target.value);
   });
