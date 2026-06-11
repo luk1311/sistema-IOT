@@ -998,7 +998,7 @@ function serveStatic(req, res, url) {
 // Montar manejador heredado para no romper todo de golpe
 app.use('/api', async (req, res, next) => {
   try {
-    const url = new URL(req.url, `http://${req.headers.host}`);
+    const url = new URL(req.originalUrl, `http://${req.headers.host}`);
     await handleApi(req, res, url);
   } catch (err) {
     next(err);
