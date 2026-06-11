@@ -560,8 +560,26 @@
       }
     }
 
-    function autoConnectMqtt() {
-      const saved = JSON.parse(localStorage.getItem('tadashy_mqtt') || 'null');
+    async function autoConnectMqtt() {
+      let saved = JSON.parse(localStorage.getItem('tadashy_mqtt') || 'null');
+      
+      if (!saved?.host || !saved?.port || !saved?.username || !saved?.password) {
+        try {
+          const config = await api('/mqtt/config');
+          if (config && config.host && config.password) {
+            saved = config;
+            localStorage.setItem('tadashy_mqtt', JSON.stringify(saved));
+            
+            document.getElementById('mqtt-host').value = saved.host || '';
+            document.getElementById('mqtt-port').value = saved.port || '';
+            document.getElementById('mqtt-user').value = saved.username || '';
+            document.getElementById('mqtt-pass').value = saved.password || '';
+          }
+        } catch (err) {
+          addLog('No se pudo obtener config MQTT del servidor', 'err');
+        }
+      }
+
       if (!saved?.host || !saved?.port || !saved?.username || !saved?.password || mqttClient) {
         if (!saved?.password) addLog('MQTT listo: faltan credenciales guardadas', 'inf');
         return;

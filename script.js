@@ -1132,11 +1132,23 @@ function createConfirmationCard(container, token, action) {
   });
 }
 
-function autoConnectMqtt() {
+async function autoConnectMqtt() {
   if (!auth || !hasPermission('mqtt_status') || client) return;
-  if (auth.user.role !== 'super_admin') return; // Bloquear acceso directo a roles menores
   
-  const saved = JSON.parse(localStorage.getItem('tadashy_mqtt') || 'null');
+  let saved = JSON.parse(localStorage.getItem('tadashy_mqtt') || 'null');
+  if (!saved?.host || !saved?.port || !saved?.username || !saved?.password) {
+    try {
+      const config = await api('/mqtt/config');
+      if (config && config.host && config.password) {
+        saved = config;
+        localStorage.setItem('tadashy_mqtt', JSON.stringify(saved));
+        hydrateMqttForm();
+      }
+    } catch (err) {
+      addLog('No se pudo obtener config MQTT del servidor', 'err');
+    }
+  }
+
   if (!saved?.host || !saved?.port || !saved?.username || !saved?.password) {
     addLog('MQTT listo: faltan credenciales guardadas', 'inf');
     return;

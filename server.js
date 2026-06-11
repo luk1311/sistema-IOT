@@ -606,6 +606,21 @@ async function handleApi(req, res, url) {
     return send(res, 200, { devices: iotStore.listDevices() });
   }
 
+  if (route === 'GET /api/mqtt/config') {
+    const allowed = requireAuth(req, db, 'mqtt_status');
+    if (allowed.error) return send(res, allowed.status, { error: allowed.error });
+    let host = '';
+    if (MQTT_URL) {
+      try { host = new URL(MQTT_URL).hostname; } catch(e) {}
+    }
+    return send(res, 200, {
+      host: host,
+      port: 8884,
+      username: MQTT_USERNAME,
+      password: MQTT_PASSWORD
+    });
+  }
+
   if (route === 'POST /api/mqtt/publish') {
     const allowed = requireAuth(req, db, 'mqtt_publish');
     if (allowed.error) return send(res, allowed.status, { error: allowed.error });
