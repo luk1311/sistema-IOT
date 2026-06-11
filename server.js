@@ -5,6 +5,11 @@ const app = express();
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const { initializeApp, cert } = require('firebase-admin/app');
+const { getFirestore } = require('firebase-admin/firestore');
+const serviceAccount = require('./firebase-key.json');
+initializeApp({ credential: cert(serviceAccount) });
+const firestore = getFirestore();
 const mqtt = require('mqtt');
 const { createIotStore, normalizeDeviceId, parseJson } = require('./iot_store');
 const { createAiService } = require('./ai_service');
@@ -210,45 +215,42 @@ function ensureDb() {
   writeDb(db);
 }
 
-let dbCache = null;
-let dbWriteTimeout = null;
+let dbCache = { users: [], sessions: {}, history: [], automations: [], devices: [] };
+
+async function loadDbFromFirebase() {
+  console.log('[DB] Descargando datos desde Firebase Firestore...');
+  const collections = ['users', 'history', 'automations', 'devices'];
+  for (const coll of collections) {
+    const snap = await firestore.collection(coll).get();
+    dbCache[coll] = snap.docs.map(d => d.data());
+  }
+  
+  // Si no hay admin, inyectar uno temporal en memoria para poder entrar
+  if (!dbCache.users.some(u => u.role === 'super_admin' || u.role === 'admin')) {
+    const adminPassword = hashPassword('admin123');
+    const defaultAdmin = {
+      id: crypto.randomUUID(),
+      username: 'admin',
+      passwordHash: adminPassword.hash,
+      salt: adminPassword.salt,
+      role: 'super_admin',
+      active: true,
+      createdAt: new Date().toISOString()
+    };
+    dbCache.users.push(defaultAdmin);
+    firestore.collection('users').doc(defaultAdmin.id).set(defaultAdmin).catch(console.error);
+    console.log('[DB] Se ha creado un usuario admin por defecto.');
+  }
+  console.log('[DB] Firebase sincronizado correctamente.');
+}
 
 function readDb() {
-  if (dbCache) return dbCache;
-  ensureDb();
-  dbCache = JSON.parse(fs.readFileSync(DB_FILE, 'utf8'));
-  let migrated = false;
-  dbCache.users.forEach((user) => {
-    if (ROLE_ALIASES[user.role]) {
-      user.role = ROLE_ALIASES[user.role];
-      migrated = true;
-    }
-  });
-  if (migrated) writeDb(dbCache, true);
   return dbCache;
 }
 
 function writeDb(db, forceSync = false) {
   dbCache = db;
-  if (forceSync) {
-    fs.writeFileSync(DB_FILE, JSON.stringify(db, null, 2));
-    if (dbWriteTimeout) clearTimeout(dbWriteTimeout);
-    dbWriteTimeout = null;
-  } else {
-    if (!dbWriteTimeout) {
-      dbWriteTimeout = setTimeout(() => {
-        fs.writeFile(DB_FILE, JSON.stringify(dbCache, null, 2), (err) => {
-          if (err) console.error('[DB] Error writing db.json:', err);
-        });
-        dbWriteTimeout = null;
-      }, 1000);
-    }
-  }
-}
-
-function hashPassword(password, salt = crypto.randomBytes(16).toString('hex')) {
-  const hash = crypto.pbkdf2Sync(password, salt, 120000, 32, 'sha256').toString('hex');
-  return { salt, hash };
+  // Local file write completely removed. Data persistence is handled via direct Firestore calls in the endpoints.
 }
 
 function verifyPassword(password, user) {
@@ -1070,9 +1072,10 @@ app.use((err, req, res, next) => {
 const server = http.createServer(app);
 
 
-ensureDb();
+
 
 (async function start() {
+  await loadDbFromFirebase();
   iotStore = await createIotStore({ dataDir: DATA_DIR });
 
   aiModules = {};

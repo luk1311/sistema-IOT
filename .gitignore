@@ -2,3 +2,5 @@ node_modules
 data/db.json
 data/iot.sqlite
 data/*.bak
+firebase-key.json
+migrate_to_firebase.js
