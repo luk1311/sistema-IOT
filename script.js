@@ -939,8 +939,9 @@ async function sendAiMessage(messageText, options = {}) {
     });
 
     if (!res.ok) {
-      const errData = await res.json().catch(() => ({}));
-      throw new Error(errData.error || 'Error en el chat de IA');
+      let errData = {};
+      try { errData = await res.json(); } catch(e) {}
+      throw new Error(errData.error || `HTTP ${res.status}: Servidor no disponible (¿Node.js apagado o sin conexión a Ollama?)`);
     }
 
     loadingEl.remove();
