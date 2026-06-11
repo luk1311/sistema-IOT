@@ -142,7 +142,11 @@ function renderShell() {
     el.classList.toggle('hidden', !hasPermission(el.dataset.permission));
   });
   const activeNav = document.querySelector('.nav-btn.active');
-  if (activeNav?.classList.contains('hidden')) switchView('dashboard');
+  if (activeNav && !activeNav.classList.contains('hidden')) {
+    switchView(activeNav.dataset.view);
+  } else {
+    switchView('dashboard');
+  }
   buildCards();
   loadAll();
   connectIotEvents();

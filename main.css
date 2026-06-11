@@ -649,8 +649,9 @@ input[type="range"]::-webkit-slider-thumb {
   .main-content { margin-left: 0; padding-left: 16px; padding-right: 16px; }
   .dashboard-grid { display: flex; flex-direction: column; }
   
-  .top-status { gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+  .top-status { gap: 8px; flex-wrap: nowrap; justify-content: flex-end; }
   .operator-profile { display: none; }
+  #api-badge, #conn-badge { display: none !important; }
   
   #robot-modal .flex-row { flex-wrap: wrap; gap: 8px; width: 100%; }
   #robot-modal .modal-content > div:first-child { flex-direction: column; align-items: flex-start; }
