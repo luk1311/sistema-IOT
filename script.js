@@ -135,7 +135,9 @@ function renderShell() {
   $('main').style.display = auth ? 'grid' : 'none';
   if (!auth) return;
 
-  $('session-name').textContent = `${auth.user.username} · ${roleLabel(auth.user.role)}`;
+  $('session-name').textContent = auth.user.username;
+  const roleEl = document.querySelector('.operator-role');
+  if (roleEl) roleEl.textContent = roleLabel(auth.user.role);
   document.querySelectorAll('[data-permission]').forEach((el) => {
     el.classList.toggle('hidden', !hasPermission(el.dataset.permission));
   });
