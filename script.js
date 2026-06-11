@@ -498,17 +498,27 @@ async function discoverDevices() {
 
 async function loadUsers() {
   if (!hasPermission('manage_users')) return;
-  const data = await api('/users');
-  users = data.users;
-  $('user-total').textContent = users.length;
-  $('user-list').innerHTML = users.map((user) => `
-    <div class="item-row">
-      <div><div class="row-title">${escapeHtml(user.username)}</div><div class="row-meta">${escapeHtml(roleLabel(user.role))} · ${user.active ? 'activo' : 'inactivo'}</div></div>
-      <div class="flex-row">
-        <button class="ghost-btn" data-toggle-user="${user.id}">${user.active ? 'Desactivar' : 'Activar'}</button>
-        <button class="ghost-btn" style="color: var(--accent-offline-strong); padding: 4px;" data-delete-user="${user.id}"><span class="material-symbols-outlined" style="font-size: 18px;">delete</span></button>
-      </div>
-    </div>`).join('');
+  try {
+    const data = await api('/users');
+    users = data.users || [];
+    $('user-total').textContent = users.length;
+    
+    if (users.length === 0) {
+      $('user-list').innerHTML = `<div class="empty-state">No hay operadores registrados</div>`;
+      return;
+    }
+
+    $('user-list').innerHTML = users.map((user) => `
+      <div class="item-row">
+        <div><div class="row-title">${escapeHtml(user.username)}</div><div class="row-meta">${escapeHtml(roleLabel(user.role))} · ${user.active ? 'activo' : 'inactivo'}</div></div>
+        <div class="flex-row">
+          <button class="ghost-btn" data-toggle-user="${user.id}">${user.active ? 'Desactivar' : 'Activar'}</button>
+          <button class="ghost-btn" style="color: var(--accent-offline-strong); padding: 4px;" data-delete-user="${user.id}"><span class="material-symbols-outlined" style="font-size: 18px;">delete</span></button>
+        </div>
+      </div>`).join('');
+  } catch (err) {
+    $('user-list').innerHTML = `<div class="empty-state" style="color: var(--accent-offline-strong);">API Offline. No se pudieron cargar los operadores.</div>`;
+  }
 }
 
 async function createUser(event) {
@@ -559,14 +569,24 @@ async function deleteUser(id) {
 }
 
 async function loadAutomations() {
-  const data = await api('/automations');
-  automations = data.automations;
-  $('auto-total').textContent = automations.length;
-  $('automation-list').innerHTML = automations.map((item) => `
-    <div class="item-row">
-      <div><div class="row-title">${escapeHtml(item.name)}</div><div class="row-meta">${item.steps.length} pasos</div></div>
-      <button class="secondary-btn" data-run-auto="${item.id}"><i class="ti ti-player-play"></i>Ejecutar</button>
-    </div>`).join('');
+  try {
+    const data = await api('/automations');
+    automations = data.automations || [];
+    $('auto-total').textContent = automations.length;
+    
+    if (automations.length === 0) {
+      $('automation-list').innerHTML = `<div class="empty-state">No hay rutinas creadas</div>`;
+      return;
+    }
+
+    $('automation-list').innerHTML = automations.map((item) => `
+      <div class="item-row">
+        <div><div class="row-title">${escapeHtml(item.name)}</div><div class="row-meta">${item.steps.length} pasos</div></div>
+        <button class="secondary-btn" data-run-auto="${item.id}"><span class="material-symbols-outlined" style="font-size: 16px;">play_arrow</span> Ejecutar</button>
+      </div>`).join('');
+  } catch (err) {
+    $('automation-list').innerHTML = `<div class="empty-state" style="color: var(--accent-offline-strong);">API Offline. No se pudieron cargar las rutinas.</div>`;
+  }
 }
 
 async function createAutomation(event) {
