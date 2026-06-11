@@ -603,7 +603,7 @@ input[type="range"]::-webkit-slider-thumb {
 /* Login Overlay */
 #login-overlay {
   position: fixed; inset: 0; z-index: 1000;
-  background: var(--bg-primary); display: flex; align-items: center; justify-content: center;
+  background: var(--bg-primary); display: none; align-items: center; justify-content: center;
 }
 .login-card {
   width: 100%; max-width: 400px;
