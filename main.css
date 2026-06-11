@@ -660,7 +660,12 @@ input[type="range"]::-webkit-slider-thumb {
     justify-content: center;
     padding: 0;
     margin: 0;
-    z-index: 39;
+    z-index: 49;
+    transition: opacity 0.3s ease;
+  }
+  body:has(.sidebar.open) .top-status {
+    opacity: 0;
+    pointer-events: none;
   }
   #logout-btn {
     position: fixed;
