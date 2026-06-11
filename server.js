@@ -985,6 +985,14 @@ async function handleApi(req, res, url) {
     return send(res, 201, { ok: true });
   }
 
+  if (route === 'DELETE /api/history') {
+    const allowed = requireAuth(req, db, 'view_history');
+    if (allowed.error) return send(res, allowed.status, { error: allowed.error });
+    db.history = [];
+    writeDb(db);
+    return send(res, 200, { ok: true });
+  }
+
   if (route === 'GET /api/automations') {
     return send(res, 200, { automations: db.automations });
   }
