@@ -1,10 +1,10 @@
-const CACHE_NAME = 'tadashy-iot-cache-v3';
+const CACHE_NAME = 'tadashy-iot-cache-v4';
 const ASSETS_TO_CACHE = [
   './',
   './index.html',
   './main.css',
   './script.js',
-  './favicon.png',
+  './favicon.ico',
   './manifest.json',
   'https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css',
   'https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css',
