@@ -1,6 +1,7 @@
 const http = require('http');
 const express = require('express');
 const cors = require('cors');
+const jwt = require('jsonwebtoken');
 const app = express();
 const fs = require('fs');
 const path = require('path');
@@ -46,7 +47,6 @@ let aiService = null;
 let aiModules = null;
 const eventClients = new Set();
 const eventBus = new EventBus();
-const sessionManager = new SessionManager();
 
 const SCOPES = {
   super_admin: ['ai:chat', 'devices:read', 'telemetry:read', 'automations:read', 'users:read', 'system:read', 'devices:control', 'automations:create', 'automations:execute', 'automations:stop', 'voice:use', 'memory:read', 'memory:write', 'groups:read'],
@@ -198,7 +198,6 @@ function ensureDb() {
       active: true,
       createdAt: new Date().toISOString()
     }],
-    sessions: {},
     history: [],
     automations: [{
       id: crypto.randomUUID(),
@@ -215,7 +214,7 @@ function ensureDb() {
   writeDb(db);
 }
 
-let dbCache = { users: [], sessions: {}, history: [], automations: [], devices: [] };
+let dbCache = { users: [], history: [], automations: [], devices: [] };
 
 async function loadDbFromFirebase() {
   console.log('[DB] Descargando datos desde Firebase Firestore...');
@@ -290,24 +289,20 @@ app.use(express.static(__dirname));
 function requireAuth(req, db, permission) {
   const header = req.headers.authorization || '';
   const token = header.startsWith('Bearer ') ? header.slice(7) : '';
-  let session = db.sessions[token];
 
-  // Auto-recuperaci├│n de sesi├│n si el token existe pero no est├í en la BD (evita 401 en reinicios)
-  if (!session && token && token.length > 10) {
-    const defaultUser = db.users.find(u => u.active && (u.role === 'super_admin' || u.role === 'admin')) || db.users.find(u => u.active);
-    if (defaultUser) {
-      session = { userId: defaultUser.id, createdAt: new Date().toISOString() };
-      db.sessions[token] = session;
-      writeDb(db);
-      console.log(`[Auth] Sesi├│n auto-recuperada/creada para token: ${token.slice(0, 8)}...`);
-    }
-  }
-
-  if (!session) {
-    console.error(`[Auth] Intento de acceso fallido: Sesi├│n inv├ílida (Token: ${token ? 'Presente' : 'Ausente'})`);
+  if (!token) {
     return { error: 'Sesion invalida', status: 401 };
   }
-  const user = db.users.find((item) => item.id === session.userId && item.active);
+
+  let decoded;
+  try {
+    decoded = jwt.verify(token, process.env.JWT_SECRET || 'tadashy_super_secret_key_12345!');
+  } catch (err) {
+    console.error(`[Auth] JWT Invalido o expirado`);
+    return { error: 'Sesion expirada o invalida', status: 401 };
+  }
+
+  const user = db.users.find((item) => item.id === decoded.userId && item.active);
   if (!user) return { error: 'Usuario inactivo o inexistente', status: 401 };
   const permissions = PERMISSIONS[user.role] || [];
   if (permission && !permissions.includes(permission)) return { error: 'Permiso denegado', status: 403 };
@@ -408,24 +403,20 @@ function executeBackendToolCall(db, user, call, correlationId) {
 function requireEventAuth(req, db, permission) {
   const url = new URL(req.url, `http://${req.headers.host}`);
   const token = url.searchParams.get('token') || '';
-  let session = db.sessions[token];
 
-  // Auto-recuperaci├│n de sesi├│n para EventSource
-  if (!session && token && token.length > 10) {
-    const defaultUser = db.users.find(u => u.active && (u.role === 'super_admin' || u.role === 'admin')) || db.users.find(u => u.active);
-    if (defaultUser) {
-      session = { userId: defaultUser.id, createdAt: new Date().toISOString() };
-      db.sessions[token] = session;
-      writeDb(db);
-      console.log(`[EventAuth] Sesi├│n auto-recuperada/creada para token SSE: ${token.slice(0, 8)}...`);
-    }
-  }
-
-  if (!session) {
-    console.error(`[EventAuth] EventSource rechazado: Sesi├│n inv├ílida (Token: ${token ? 'Presente' : 'Ausente'})`);
+  if (!token) {
     return { error: 'Sesion invalida', status: 401 };
   }
-  const user = db.users.find((item) => item.id === session.userId && item.active);
+
+  let decoded;
+  try {
+    decoded = jwt.verify(token, process.env.JWT_SECRET || 'tadashy_super_secret_key_12345!');
+  } catch (err) {
+    console.error(`[EventAuth] JWT Invalido o expirado`);
+    return { error: 'Sesion expirada o invalida', status: 401 };
+  }
+
+  const user = db.users.find((item) => item.id === decoded.userId && item.active);
   if (!user) return { error: 'Usuario inactivo o inexistente', status: 401 };
   const permissions = PERMISSIONS[user.role] || [];
   if (permission && !permissions.includes(permission)) return { error: 'Permiso denegado', status: 403 };
@@ -1151,7 +1142,7 @@ function serveStatic(req, res, url) {
 
 // --- MVC Routes Setup ---
 const deps = { 
-  readDb, writeDb, verifyPassword, hashPassword, publicUser, requireAuth, requireEventAuth, addHistory, checkRateLimit, sessionManager, 
+  readDb, writeDb, verifyPassword, hashPassword, publicUser, requireAuth, requireEventAuth, addHistory, checkRateLimit, 
   crypto, firestore, validDeviceId, validateDevicePatch, PERMISSIONS, SCOPES, runAutomationInBackend, executeBackendToolCall, eventClients,
   getIotStore: () => iotStore,
   getIotMqttClient: () => iotMqttClient,

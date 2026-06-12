@@ -17,6 +17,7 @@
     "express": "^5.2.1",
     "firebase-admin": "^14.0.0",
     "jimp": "^0.22.10",
+    "jsonwebtoken": "^9.0.3",
     "mqtt": "^5.15.1",
     "png-to-ico": "^3.0.1"
   }
