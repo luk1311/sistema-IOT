@@ -1,6 +1,6 @@
 const fs = require('fs');
 const path = require('path');
-const initSqlJs = require('sql.js');
+const Database = require('better-sqlite3');
 const Ajv = require('ajv');
 const crypto = require('crypto');
 
@@ -53,15 +53,7 @@ function nowIso() {
 }
 
 function getRows(db, sql, params = []) {
-  const stmt = db.prepare(sql);
-  const rows = [];
-  try {
-    stmt.bind(params);
-    while (stmt.step()) rows.push(stmt.getAsObject());
-  } finally {
-    stmt.free();
-  }
-  return rows;
+  return db.prepare(sql).all(...params);
 }
 
 class ToolRegistry {
@@ -141,19 +133,12 @@ async function createAiService({
 }) {
   if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true });
 
-  const SQL = await initSqlJs();
   const filePath = path.join(dataDir, filename);
-  const db = fs.existsSync(filePath)
-    ? new SQL.Database(fs.readFileSync(filePath))
-    : new SQL.Database();
+  const db = new Database(filePath);
+  db.pragma('journal_mode = WAL');
 
-  let saveTimer = null;
   const toolRegistry = new ToolRegistry();
   const pendingConfirmations = new Map();
-
-  function persist() {
-    fs.writeFileSync(filePath, Buffer.from(db.export()));
-  }
 
   // Limpieza periódica de tokens pendientes de confirmación caducados (más de 10 minutos)
   setInterval(() => {
@@ -165,23 +150,11 @@ async function createAiService({
     }
   }, 60000);
 
-  function schedulePersist() {
-    clearTimeout(saveTimer);
-    saveTimer = setTimeout(persist, 120);
-  }
-
   function exec(sql, params = []) {
-    const stmt = db.prepare(sql);
-    try {
-      stmt.bind(params);
-      stmt.step();
-    } finally {
-      stmt.free();
-    }
-    schedulePersist();
+    return db.prepare(sql).run(...params);
   }
 
-  db.run(`
+  db.exec(`
     CREATE TABLE IF NOT EXISTS ai_messages (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       user_id TEXT NOT NULL,
@@ -201,14 +174,11 @@ async function createAiService({
     const cols = getRows(db, "PRAGMA table_info(ai_messages)");
     const hasSessionId = cols.some(col => col.name === 'session_id');
     if (!hasSessionId) {
-      db.run("ALTER TABLE ai_messages ADD COLUMN session_id TEXT NOT NULL DEFAULT 'default'");
-      persist();
+      db.exec("ALTER TABLE ai_messages ADD COLUMN session_id TEXT NOT NULL DEFAULT 'default'");
     }
   } catch (err) {
     console.error("Error al migrar la tabla ai_messages:", err.message);
   }
-
-  persist();
 
   function addMessage(userId, sessionId, role, content, metadata = {}, usedModel = model) {
     const ts = nowIso();
@@ -663,8 +633,6 @@ async function createAiService({
   }
 
   function close() {
-    clearTimeout(saveTimer);
-    persist();
     db.close();
   }
 

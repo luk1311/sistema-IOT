@@ -1,6 +1,6 @@
 const fs = require('fs');
 const path = require('path');
-const initSqlJs = require('sql.js');
+const Database = require('better-sqlite3');
 
 const DEVICE_ID_RE = /^[a-zA-Z0-9_-]{3,64}$/;
 const MAX_TELEMETRY_ROWS = 5000;
@@ -114,53 +114,27 @@ function sanitizeTelemetry(value, depth = 0, state = { keys: 0 }) {
 }
 
 function getRows(db, sql, params = []) {
-  const stmt = db.prepare(sql);
-  const rows = [];
-  try {
-    stmt.bind(params);
-    while (stmt.step()) rows.push(stmt.getAsObject());
-  } finally {
-    stmt.free();
-  }
-  return rows;
+  return db.prepare(sql).all(...params);
 }
 
 function getRow(db, sql, params = []) {
-  return getRows(db, sql, params)[0] || null;
+  return db.prepare(sql).get(...params) || null;
+}
+
+function exec(db, sql, params = []) {
+  return db.prepare(sql).run(...params);
 }
 
 async function createIotStore({ dataDir, filename = 'iot.sqlite' }) {
   if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true });
 
-  const SQL = await initSqlJs();
   const filePath = path.join(dataDir, filename);
-  const db = fs.existsSync(filePath)
-    ? new SQL.Database(fs.readFileSync(filePath))
-    : new SQL.Database();
+  const db = new Database(filePath);
+  
+  // Habilitar modo WAL para concurrencia masiva (reads and writes at the same time)
+  db.pragma('journal_mode = WAL');
 
-  let saveTimer = null;
-
-  function persist() {
-    fs.writeFileSync(filePath, Buffer.from(db.export()));
-  }
-
-  function schedulePersist() {
-    clearTimeout(saveTimer);
-    saveTimer = setTimeout(persist, 120);
-  }
-
-  function exec(sql, params = []) {
-    const stmt = db.prepare(sql);
-    try {
-      stmt.bind(params);
-      stmt.step();
-    } finally {
-      stmt.free();
-    }
-    schedulePersist();
-  }
-
-  db.run(`
+  db.exec(`
     CREATE TABLE IF NOT EXISTS devices (
       device_id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
@@ -257,12 +231,10 @@ async function createIotStore({ dataDir, filename = 'iot.sqlite' }) {
     );
   `);
   
-  db.run(`
+  exec(db, `
     INSERT OR IGNORE INTO devices (device_id, name, type, status, first_seen, last_seen, updated_at)
     VALUES ('brazo', 'Brazo Robótico', 'robot', 'online', ?, ?, ?)
   `, [nowIso(), nowIso(), nowIso()]);
-
-  persist();
 
   function getDevice(deviceId) {
     const id = normalizeDeviceId(deviceId);
@@ -294,7 +266,7 @@ async function createIotStore({ dataDir, filename = 'iot.sqlite' }) {
       updatedAt: ts
     };
 
-    exec(`
+    exec(db, `
       INSERT INTO devices (
         device_id, name, type, status, firmware, ip, capabilities, metadata,
         config, last_telemetry, first_seen, last_seen, updated_at
@@ -344,10 +316,10 @@ async function createIotStore({ dataDir, filename = 'iot.sqlite' }) {
     const parsed = sanitizeTelemetry(parseJson(payload, payload));
     const jsonPayload = JSON.stringify(parsed);
     registerDevice(id, { status: 'online', lastTelemetry: parsed, lastSeen: ts });
-    exec('INSERT INTO telemetry (device_id, topic, payload, received_at) VALUES (?, ?, ?, ?)', [
+    exec(db, 'INSERT INTO telemetry (device_id, topic, payload, received_at) VALUES (?, ?, ?, ?)', [
       id, topic, jsonPayload, ts
     ]);
-    exec(`
+    exec(db, `
       DELETE FROM telemetry
       WHERE id NOT IN (SELECT id FROM telemetry ORDER BY id DESC LIMIT ?)
     `, [MAX_TELEMETRY_ROWS]);
@@ -369,7 +341,7 @@ async function createIotStore({ dataDir, filename = 'iot.sqlite' }) {
     const id = normalizeDeviceId(deviceId);
     if (!id) return null;
     const ts = nowIso();
-    exec(
+    exec(db, 
       'INSERT INTO device_events (device_id, type, detail, payload, created_at) VALUES (?, ?, ?, ?, ?)',
       [id, type, String(detail).slice(0, 240), JSON.stringify(payload), ts]
     );
@@ -380,7 +352,7 @@ async function createIotStore({ dataDir, filename = 'iot.sqlite' }) {
     const id = normalizeDeviceId(deviceId);
     if (!id || !getDevice(id)) return null;
     const ts = nowIso();
-    exec(
+    exec(db, 
       'INSERT INTO device_commands (device_id, command, payload, status, created_at) VALUES (?, ?, ?, ?, ?)',
       [id, String(command).slice(0, 80), JSON.stringify(payload), 'published', ts]
     );
@@ -400,7 +372,7 @@ async function createIotStore({ dataDir, filename = 'iot.sqlite' }) {
 
   function addAuditLog(correlationId, userId, username, tool, args, status, durationMs, result = null) {
     const ts = nowIso();
-    exec(`
+    exec(db, `
       INSERT INTO audit_logs (correlation_id, user_id, username, tool, arguments, status, duration_ms, timestamp, result)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     `, [correlationId, String(userId), username, tool, JSON.stringify(args), status, Number(durationMs), ts, result ? JSON.stringify(result) : null]);
@@ -425,7 +397,7 @@ async function createIotStore({ dataDir, filename = 'iot.sqlite' }) {
       createdAutomations: patch.createdAutomations || current.createdAutomations || [],
       historySummary: String(patch.historySummary ?? current.historySummary ?? '').slice(0, 2000)
     };
-    exec(`
+    exec(db, `
       INSERT INTO memory_profiles (
         user_id, session_id, preferences, frequent_devices, used_locations,
         created_automations, history_summary, updated_at
@@ -458,7 +430,7 @@ async function createIotStore({ dataDir, filename = 'iot.sqlite' }) {
     const safeName = String(name || '').trim().toLowerCase().slice(0, 80);
     if (!safeName) return null;
     const ts = nowIso();
-    exec(`
+    exec(db, `
       INSERT INTO device_groups (name, aliases, location, device_ids, metadata, updated_at)
       VALUES (?, ?, ?, ?, ?, ?)
       ON CONFLICT(name) DO UPDATE SET
@@ -486,7 +458,7 @@ async function createIotStore({ dataDir, filename = 'iot.sqlite' }) {
     const safeName = String(name || '').trim().toLowerCase().slice(0, 80);
     if (!safeName) return null;
     const ts = nowIso();
-    exec(`
+    exec(db, `
       INSERT INTO locations (name, aliases, device_ids, metadata, updated_at)
       VALUES (?, ?, ?, ?, ?)
       ON CONFLICT(name) DO UPDATE SET
@@ -509,7 +481,7 @@ async function createIotStore({ dataDir, filename = 'iot.sqlite' }) {
     if (!safeKey) return null;
     const ts = nowIso();
     const expiresAt = new Date(Date.now() + Math.max(1000, Number(ttlMs) || 30000)).toISOString();
-    exec(`
+    exec(db, `
       INSERT INTO context_cache (cache_key, value, expires_at, updated_at)
       VALUES (?, ?, ?, ?)
       ON CONFLICT(cache_key) DO UPDATE SET
@@ -527,8 +499,6 @@ async function createIotStore({ dataDir, filename = 'iot.sqlite' }) {
   }
 
   function close() {
-    clearTimeout(saveTimer);
-    persist();
     db.close();
   }
 
