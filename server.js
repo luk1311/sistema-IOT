@@ -284,7 +284,7 @@ function send(res, status, data) {
 
 app.use(cors());
 app.use(express.json({ limit: '5mb' }));
-app.use(express.static(__dirname));
+app.use(express.static(path.join(__dirname, 'frontend/dist')));
 
 function requireAuth(req, db, permission) {
   const header = req.headers.authorization || '';
@@ -467,14 +467,6 @@ function handleIotMqttMessage(topic, payloadBuffer) {
   if (!iotStore) return;
   const payloadText = payloadBuffer.toString();
 
-  const cacheKey = `${topic}::${payloadText}`;
-  const now = Date.now();
-  if (now - (deviceStateCache.get(cacheKey) || 0) < 30000) {
-    return;
-  }
-  deviceStateCache.set(cacheKey, now);
-  if (deviceStateCache.size > 2000) deviceStateCache.clear();
-
   const match = topic.match(/^devices\/([^/]+)\/(status|telemetry|config)$/);
   if (!match) return;
 
@@ -485,16 +477,39 @@ function handleIotMqttMessage(topic, payloadBuffer) {
   const payload = parseJson(payloadText, payloadText);
 
   if (channel === 'status') {
-    const status = typeof payload === 'object' ? payload.status : payload;
+    const rawStatus = typeof payload === 'object' ? payload.status : payload;
+    const cleanStatus = rawStatus === 'offline' ? 'offline' : 'online';
+    const currentDevice = iotStore.getDevice(deviceId);
+
+    if (currentDevice && currentDevice.status === cleanStatus) {
+      return; 
+    }
+
     const patch = typeof payload === 'object' ? validateDevicePatch(payload) : {};
     const device = iotStore.registerDevice(deviceId, {
       ...patch,
-      status: status === 'offline' ? 'offline' : 'online',
+      status: cleanStatus,
       metadata: { source: 'mqtt', ...(patch.metadata || {}) }
     });
     emitIotEvent('device', device);
+
+    const db = readDb();
+    if (cleanStatus === 'offline') {
+      addHistory(db, null, 'device_offline', `Dispositivo ${deviceId} desconectado (LWT)`);
+    } else if (currentDevice) {
+      addHistory(db, null, 'device_online', `Dispositivo ${deviceId} ha vuelto a conectarse`);
+    }
+    writeDb(db);
     return;
   }
+
+  const cacheKey = `${topic}::${payloadText}`;
+  const now = Date.now();
+  if (now - (deviceStateCache.get(cacheKey) || 0) < 30000) {
+    return;
+  }
+  deviceStateCache.set(cacheKey, now);
+  if (deviceStateCache.size > 2000) deviceStateCache.clear();
 
   if (channel === 'telemetry') {
     const telemetry = iotStore.addTelemetry(deviceId, topic, payload);
@@ -1229,6 +1244,13 @@ app.get('/api/voice/config', (req, res) => {
 
 app.use('/api', (req, res) => res.status(404).json({ error: 'Ruta API no encontrada' }));
 
+// SPA Fallback for React Router
+app.use((req, res, next) => {
+  if (req.url.startsWith('/api/')) return next();
+  res.sendFile(path.join(__dirname, 'frontend/dist/index.html'), (err) => {
+    if (err) res.status(404).send('Frontend no construido o no encontrado');
+  });
+});
 
 // Global Error Handler
 app.use((err, req, res, next) => {
@@ -1465,7 +1487,14 @@ const server = http.createServer(app);
   startIotMqttBridge();
   setInterval(() => {
     const offlineIds = iotStore.markOfflineStaleDevices(HEARTBEAT_TIMEOUT_MS);
-    offlineIds.forEach((deviceId) => emitIotEvent('device', iotStore.getDevice(deviceId)));
+    if (offlineIds.length > 0) {
+      const db = readDb();
+      offlineIds.forEach((deviceId) => {
+        emitIotEvent('device', iotStore.getDevice(deviceId));
+        addHistory(db, null, 'device_offline', `Dispositivo ${deviceId} desconectado por inactividad (Watchdog)`);
+      });
+      writeDb(db);
+    }
   }, Math.max(3000, Math.floor(HEARTBEAT_TIMEOUT_MS / 2)));
 
   server.listen(PORT, () => {
