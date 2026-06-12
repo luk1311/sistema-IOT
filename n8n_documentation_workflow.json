@@ -1,0 +1,58 @@
+{
+  "name": "Tadashy Documentation Agent",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "tadashy-docs",
+        "options": {}
+      },
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [
+        250,
+        300
+      ],
+      "webhookId": "generado-por-n8n"
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "={{$json.body.documentId}}",
+          "mode": "id"
+        },
+        "text": "={{$json.body.content}}"
+      },
+      "name": "Google Docs (Append)",
+      "type": "n8n-nodes-base.googleDocs",
+      "typeVersion": 2,
+      "position": [
+        500,
+        300
+      ],
+      "credentials": {
+        "googleApi": {
+          "id": "TBD",
+          "name": "Google account"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Google Docs (Append)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {}
+}
