@@ -324,7 +324,7 @@ function requireAuth(req, db, permission) {
 }
 
 function addHistory(db, user, type, detail, metadata = {}) {
-  db.history.unshift({
+  const historyItem = {
     id: crypto.randomUUID(),
     type,
     detail,
@@ -332,8 +332,10 @@ function addHistory(db, user, type, detail, metadata = {}) {
     userId: user?.id || null,
     username: user?.username || 'sistema',
     createdAt: new Date().toISOString()
-  });
+  };
+  db.history.unshift(historyItem);
   db.history = db.history.slice(0, 500);
+  firestore.collection('history').doc(historyItem.id).set(historyItem).catch(console.error);
 }
 
 function createStructuredAutomation(db, user, body, correlationId = crypto.randomUUID()) {
@@ -351,6 +353,7 @@ function createStructuredAutomation(db, user, body, correlationId = crypto.rando
     createdAt: new Date().toISOString()
   };
   db.automations.unshift(automation);
+  firestore.collection('automations').doc(automation.id).set(automation).catch(console.error);
   addHistory(db, user, 'automation', `Creo automatizacion ${automation.name}`, {
     automationId: automation.id,
     correlationId
@@ -1000,6 +1003,7 @@ async function handleApi(req, res, url) {
       createdAt: new Date().toISOString()
     };
     db.users.push(user);
+    firestore.collection('users').doc(user.id).set(user).catch(console.error);
     addHistory(db, auth.user, 'user', `Creó usuario ${user.username}`, { role: user.role });
     writeDb(db);
     return send(res, 201, { user: publicUser(user) });
@@ -1033,6 +1037,7 @@ async function handleApi(req, res, url) {
 
     if (typeof body.active === 'boolean') user.active = body.active;
     if (body.role && PERMISSIONS[body.role]) user.role = body.role;
+    firestore.collection('users').doc(user.id).update({ active: user.active, role: user.role }).catch(console.error);
     addHistory(db, auth.user, 'user', `Actualizó usuario ${user.username}`);
     writeDb(db);
     return send(res, 200, { user: publicUser(user) });
@@ -1056,6 +1061,7 @@ async function handleApi(req, res, url) {
     }
     
     db.users.splice(userIndex, 1);
+    firestore.collection('users').doc(user.id).delete().catch(console.error);
     addHistory(db, auth.user, 'user', `Eliminó usuario ${user.username}`);
     writeDb(db);
     return send(res, 200, { ok: true });
@@ -1078,6 +1084,11 @@ async function handleApi(req, res, url) {
     const allowed = requireAuth(req, db, 'view_history');
     if (allowed.error) return send(res, allowed.status, { error: allowed.error });
     db.history = [];
+    firestore.collection('history').get().then(snap => {
+      const batch = firestore.batch();
+      snap.docs.forEach(doc => batch.delete(doc.ref));
+      return batch.commit();
+    }).catch(console.error);
     writeDb(db);
     return send(res, 200, { ok: true });
   }
@@ -1098,6 +1109,7 @@ async function handleApi(req, res, url) {
       createdAt: new Date().toISOString()
     };
     db.automations.unshift(automation);
+    firestore.collection('automations').doc(automation.id).set(automation).catch(console.error);
     addHistory(db, auth.user, 'automation', `Guardó automatización ${automation.name}`);
     writeDb(db);
     return send(res, 201, { automation });
