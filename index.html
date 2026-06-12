@@ -30,16 +30,16 @@
   <div id="login-overlay">
     <form id="login-form" class="glass-panel login-card">
       <div class="login-title">
-        <span class="material-symbols-outlined">hub</span>
+        <img src="/favicon.ico?v=7" alt="Tadashy Logo" style="width: 36px; height: 36px; border-radius: 8px;">
         <span>TADASHY V3</span>
       </div>
-      <p class="font-outfit" style="color: var(--text-muted); font-size: 14px;">Identificación Requerida</p>
+      <p class="font-outfit" style="color: var(--text-muted); font-size: 15px; text-align: center; margin-top: -10px; margin-bottom: 8px;">Identificación Requerida</p>
 
       <input type="text" id="inp-user" class="input-futuristic" placeholder="Operador ID" autocomplete="username" />
       <input type="password" id="inp-pass" class="input-futuristic" placeholder="Código de Acceso"
         autocomplete="current-password" />
 
-      <button type="submit" class="btn btn-primary" style="justify-content: center; margin-top: 10px; height: 44px;">
+      <button type="submit" class="btn btn-primary" style="justify-content: center; margin-top: 12px; min-height: 52px; font-size: 15px; letter-spacing: 0.05em; border-radius: 12px;">
         <span class="material-symbols-outlined">login</span> AUTENTICAR
       </button>
 
@@ -399,22 +399,26 @@
   <div id="robot-modal">
     <div class="glass-panel modal-content">
       <div
-        style="padding: 24px; border-bottom: 1px solid var(--border-glass); display: flex; justify-content: space-between; align-items: center; background: rgba(0,0,0,0.3);">
-        <h2 class="font-outfit"
-          style="font-size: 24px; color: var(--text-primary); display: flex; align-items: center; gap: 8px;">
-          <span class="material-symbols-outlined" style="color: var(--accent-ai);">precision_manufacturing</span>
-          Control Maestro
-        </h2>
-        <div class="flex-row">
-          <button id="btn-manual" class="btn btn-primary">Modo Manual</button>
-          <button id="btn-auto" class="btn">Automático</button>
-          <button id="btn-vision" class="btn"
-            style="color: var(--accent-ai); border-color: rgba(124, 106, 255, 0.5); border-style: solid; border-width: 1px;"><span
-              class="material-symbols-outlined">visibility</span> Visión IA</button>
-          <button id="reset-btn" class="btn btn-danger" style="margin-left: 16px;"><span
-              class="material-symbols-outlined">restart_alt</span> Reset</button>
-          <button id="close-robot-modal" class="btn" style="padding: 8px; border-radius: 50%;" aria-label="Cerrar modal"><span
-              class="material-symbols-outlined">close</span></button>
+        style="padding: 24px; border-bottom: 1px solid var(--border-glass); background: rgba(0,0,0,0.3); position: relative;">
+        <button id="close-robot-modal" class="btn" style="position: absolute; top: 16px; right: 16px; padding: 0; width: 36px; height: 36px; min-height: 36px; border-radius: 50%; display: flex; align-items: center; justify-content: center; z-index: 10; background: rgba(255,255,255,0.05); border: 1px solid var(--border-glass);" aria-label="Cerrar modal">
+          <span class="material-symbols-outlined" style="font-size: 20px;">close</span>
+        </button>
+        
+        <div style="display: flex; flex-direction: column; gap: 16px; width: 100%;">
+          <h2 class="font-outfit"
+            style="font-size: 24px; color: var(--text-primary); display: flex; align-items: center; gap: 8px; padding-right: 40px;">
+            <span class="material-symbols-outlined" style="color: var(--accent-ai);">precision_manufacturing</span>
+            Control Maestro
+          </h2>
+          <div class="flex-row" style="flex-wrap: wrap;">
+            <button id="btn-manual" class="btn btn-primary">Modo Manual</button>
+            <button id="btn-auto" class="btn">Automático</button>
+            <button id="btn-vision" class="btn"
+              style="color: var(--accent-ai); border-color: rgba(124, 106, 255, 0.5); border-style: solid; border-width: 1px;"><span
+                class="material-symbols-outlined">visibility</span> Visión IA</button>
+            <button id="reset-btn" class="btn btn-danger"><span
+                class="material-symbols-outlined">restart_alt</span> Reset</button>
+          </div>
         </div>
       </div>
 
