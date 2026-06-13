@@ -946,8 +946,8 @@ const server = http.createServer(app);
   const frontendDistPath = path.join(__dirname, 'frontend', 'dist');
   app.use(express.static(frontendDistPath));
   
-  // Catch-All para React Router (SPA)
-  app.get('*', (req, res) => {
+  // Catch-All para React Router (SPA) - Compatible con Express 5
+  app.get('/(.*)', (req, res) => {
     // Evitar interceptar rutas API que no existen
     if (req.path.startsWith('/api/') || req.path.startsWith('/auth/')) {
       return res.status(404).json({ error: 'Endpoint no encontrado' });
