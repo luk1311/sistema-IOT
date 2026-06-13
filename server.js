@@ -715,8 +715,19 @@ const server = http.createServer(app);
     name: 'getDevices',
     description: 'Obtiene la lista de todos los dispositivos IoT registrados y sus estados actuales.',
     scope: 'devices:read',
-    schema: { type: 'object', properties: {}, additionalProperties: false },
-    handler: () => iotStore.listDevices()
+    schema: { 
+      type: 'object', 
+      properties: {
+        filterType: { type: 'string', description: 'Opcional. Filtrar por tipo de dispositivo' }
+      }
+    },
+    handler: (user, args) => {
+      let devices = iotStore.listDevices();
+      if (args && args.filterType) {
+        devices = devices.filter(d => (d.type || '').toLowerCase().includes(args.filterType.toLowerCase()));
+      }
+      return devices;
+    }
   });
 
   aiService.toolRegistry.register({
