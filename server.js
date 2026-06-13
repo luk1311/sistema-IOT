@@ -857,29 +857,7 @@ const server = http.createServer(app);
     })
   });
 
-  aiService.toolRegistry.register({
-    name: 'getTelemetryHistory',
-    description: 'Obtiene el historial reciente de mensajes MQTT (telemetría) de un dispositivo específico para analizar fallos o comportamientos pasados.',
-    scope: 'telemetry:read',
-    schema: {
-      type: 'object',
-      properties: {
-        deviceId: { type: 'string', minLength: 3, maxLength: 64 },
-        limit: { type: 'number', minimum: 1, maximum: 50, default: 10 }
-      },
-      required: ['deviceId'],
-      additionalProperties: false
-    },
-    handler: (user, { deviceId, limit = 10 }) => iotStore.listTelemetry(deviceId, limit)
-  });
 
-  aiService.toolRegistry.register({
-    name: 'getDeviceInventory',
-    description: 'Obtiene la lista completa de dispositivos IoT registrados, su estado (online/offline) y última vez vistos.',
-    scope: 'devices:read',
-    schema: { type: 'object', properties: {}, additionalProperties: false },
-    handler: () => iotStore.listDevices()
-  });
 
   // Registrar herramientas de escritura críticas
   aiService.toolRegistry.register({

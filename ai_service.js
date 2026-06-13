@@ -589,18 +589,14 @@ async function createAiService({
         }
       } else {
         let finalReply = responseMessage.content || '';
-        if (stream && onChunk) {
-          let accumulated = '';
-          await callOllamaChat({
-            messages: formattedMessages,
-            requestModel: selectedModel,
-            stream: true,
-            onChunk: (chunk) => {
-              accumulated += chunk;
-              onChunk(chunk);
-            }
-          });
-          finalReply = accumulated;
+        if (stream && onChunk && finalReply) {
+          // Fake streaming by sending words or characters, or just the whole chunk
+          // to avoid double-calling the LLM which causes hallucinations or blank responses
+          const words = finalReply.split(' ');
+          for (const word of words) {
+            onChunk(word + ' ');
+            await new Promise(r => setTimeout(r, 10)); // tiny delay for visual effect
+          }
         }
 
         const saved = addMessage(userId, sessionId, 'assistant', finalReply, {
