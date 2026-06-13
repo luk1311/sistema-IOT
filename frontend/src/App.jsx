@@ -1,6 +1,11 @@
 import { useState, useEffect, createContext, useContext } from 'react';
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate, Link, useLocation } from 'react-router-dom';
 import { LogIn, Activity, Cpu, Bot, Terminal, GitMerge, History, LogOut, Menu } from 'lucide-react';
+import { IoTProvider, useIoT } from './context/IoTContext';
+import Dashboard from './pages/Dashboard';
+import Devices from './pages/Devices';
+import AiChat from './pages/AiChat';
+import MqttConsole from './pages/MqttConsole';
 import './index.css';
 
 // Contexts
@@ -36,47 +41,56 @@ function AuthProvider({ children }) {
 // --- Layout Component ---
 function Layout({ children }) {
   const { user, logout } = useAuth();
-  const [apiOnline, setApiOnline] = useState(true);
+  const { sseStatus } = useIoT();
+  const location = useLocation();
+
+  const navItems = [
+    { path: '/', icon: Activity, label: 'Dashboard' },
+    { path: '/devices', icon: Cpu, label: 'Dispositivos' },
+    { path: '/ai', icon: Bot, label: 'Tadashy IA' },
+    { path: '/mqtt', icon: Terminal, label: 'Consola MQTT' },
+    { path: '/automations', icon: GitMerge, label: 'Automatizaciones' },
+    { path: '/history', icon: History, label: 'Registros' }
+  ];
 
   return (
     <div style={{ display: 'flex', height: '100vh', overflow: 'hidden' }}>
       {/* Sidebar */}
-      <aside className="glass-panel" style={{ width: '260px', margin: '16px', display: 'flex', flexDirection: 'column', padding: '24px 0' }}>
+      <aside className="glass-panel" style={{ width: '260px', margin: '16px', display: 'flex', flexDirection: 'column', padding: '24px 0', flexShrink: 0 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '0 24px', marginBottom: '32px' }}>
           <Cpu size={28} color="var(--primary)" />
           <h2 style={{ fontSize: '1.25rem', letterSpacing: '0.1em' }}>TADASHY</h2>
         </div>
         
         <nav style={{ display: 'flex', flexDirection: 'column', gap: '8px', padding: '0 16px', flex: 1 }}>
-          <button className="btn btn-ghost" style={{ justifyContent: 'flex-start', color: 'var(--text-main)', background: 'rgba(255,255,255,0.05)' }}>
-            <Activity size={20} /> Dashboard
-          </button>
-          <button className="btn btn-ghost" style={{ justifyContent: 'flex-start' }}>
-            <Cpu size={20} /> Dispositivos
-          </button>
-          <button className="btn btn-ghost" style={{ justifyContent: 'flex-start' }}>
-            <Bot size={20} /> Tadashy IA
-          </button>
-          <button className="btn btn-ghost" style={{ justifyContent: 'flex-start' }}>
-            <Terminal size={20} /> Consola MQTT
-          </button>
-          <button className="btn btn-ghost" style={{ justifyContent: 'flex-start' }}>
-            <GitMerge size={20} /> Automatizaciones
-          </button>
-          <button className="btn btn-ghost" style={{ justifyContent: 'flex-start' }}>
-            <History size={20} /> Registros
-          </button>
+          {navItems.map(item => {
+            const isActive = location.pathname === item.path;
+            return (
+              <Link key={item.path} to={item.path} style={{ textDecoration: 'none' }}>
+                <button className="btn btn-ghost" style={{ 
+                  width: '100%', 
+                  justifyContent: 'flex-start', 
+                  color: isActive ? 'var(--text-main)' : 'var(--text-muted)', 
+                  background: isActive ? 'rgba(255,255,255,0.05)' : 'transparent',
+                  borderLeft: isActive ? '3px solid var(--primary)' : '3px solid transparent',
+                  borderRadius: '0 8px 8px 0'
+                }}>
+                  <item.icon size={20} /> {item.label}
+                </button>
+              </Link>
+            );
+          })}
         </nav>
       </aside>
 
       {/* Main Content Area */}
-      <main style={{ flex: 1, display: 'flex', flexDirection: 'column', padding: '16px 16px 16px 0', overflow: 'hidden' }}>
+      <main style={{ flex: 1, display: 'flex', flexDirection: 'column', padding: '16px 16px 16px 0', overflow: 'hidden', minWidth: 0 }}>
         {/* Topbar */}
-        <header className="glass-panel" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 24px', marginBottom: '16px' }}>
+        <header className="glass-panel" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 24px', marginBottom: '16px', flexShrink: 0 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
             <button className="btn btn-ghost" style={{ padding: '8px' }}><Menu size={20} /></button>
-            <span className={`badge ${apiOnline ? 'badge-online' : 'badge-offline'}`}>
-              <div className="status-pulse"></div> API {apiOnline ? 'Online' : 'Offline'}
+            <span className={`badge ${sseStatus === 'connected' ? 'badge-online' : 'badge-offline'}`}>
+              <div className="status-pulse"></div> API {sseStatus === 'connected' ? 'Online' : 'Offline'}
             </span>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
@@ -154,12 +168,7 @@ function LoginPage() {
 
 // --- Dashboard Page Placeholder ---
 function DashboardPage() {
-  return (
-    <div className="glass-panel" style={{ padding: '24px', height: '100%' }}>
-      <h2>Vista General</h2>
-      <p style={{ color: 'var(--text-muted)', marginTop: '8px' }}>Bienvenido al nuevo panel React.</p>
-    </div>
-  );
+  return <Dashboard />;
 }
 
 // --- App Router ---
@@ -173,12 +182,18 @@ export default function App() {
           } />
           <Route path="/*" element={
             <RequireAuth>
-              <Layout>
-                <Routes>
-                  <Route path="/" element={<DashboardPage />} />
-                  <Route path="*" element={<Navigate to="/" replace />} />
-                </Routes>
-              </Layout>
+              <IoTProvider>
+                <Layout>
+                  <Routes>
+                    <Route path="/" element={<Dashboard />} />
+                    <Route path="/devices" element={<Devices />} />
+                    <Route path="/ai" element={<AiChat />} />
+                    <Route path="/mqtt" element={<MqttConsole />} />
+                    {/* Placeholder for other routes */}
+                    <Route path="*" element={<Navigate to="/" replace />} />
+                  </Routes>
+                </Layout>
+              </IoTProvider>
             </RequireAuth>
           } />
         </Routes>
