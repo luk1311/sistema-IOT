@@ -268,10 +268,36 @@
 
               <h4
                 style="font-size: 14px; color: var(--text-primary); margin-bottom: 12px; border-bottom: 1px solid var(--border-glass); padding-bottom: 8px;">
-                Capacidades Integradas</h4>
-              <div id="ai-tools-list"
-                style="display: flex; flex-direction: column; gap: 8px; max-height: 350px; overflow-y: auto;">
-                <!-- Tools injected by JS -->
+                Comandos Rápidos</h4>
+              <div id="ai-quick-prompts" style="display: flex; flex-direction: column; gap: 10px;">
+                <button class="quick-prompt-btn" data-prompt="¿Cuántos dispositivos hay conectados en la red y cuál es su estado?">
+                  <i class="ti ti-router"></i>
+                  <div class="quick-text">
+                    <strong>Escanear Red IoT</strong>
+                    <span>Estado de dispositivos</span>
+                  </div>
+                </button>
+                <button class="quick-prompt-btn" data-prompt="Muestra un resumen de las automatizaciones activas en este momento.">
+                  <i class="ti ti-logic-and"></i>
+                  <div class="quick-text">
+                    <strong>Automatizaciones</strong>
+                    <span>Reglas activas</span>
+                  </div>
+                </button>
+                <button class="quick-prompt-btn" data-prompt="Revisa la telemetría reciente del brazo robótico, ¿todo está bien?">
+                  <i class="ti ti-activity"></i>
+                  <div class="quick-text">
+                    <strong>Analizar Telemetría</strong>
+                    <span>Revisar métricas y alertas</span>
+                  </div>
+                </button>
+                <button class="quick-prompt-btn" data-prompt="Quiero enviar un comando físico al brazo robótico para mover el servo base a 90 grados.">
+                  <i class="ti ti-hand-grab"></i>
+                  <div class="quick-text">
+                    <strong>Control Robótico</strong>
+                    <span>Mover servos y hardware</span>
+                  </div>
+                </button>
               </div>
             </div>
           </div>

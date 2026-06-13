@@ -726,15 +726,17 @@ async function loadAiChat() {
     $('ai-info-endpoint').textContent = cap.ollamaUrl || 'Desconocido';
     $('ai-model-badge').innerHTML = `<i class="ti ti-brain"></i> ${cap.model || 'Mistral'}`;
 
-    $('ai-tools-list').innerHTML = cap.tools.map(t => `
-      <div class="cap-tool-card">
-        <div class="cap-tool-head">
-          <span class="tool-name"><i class="ti ti-settings-automation"></i> ${t.name}</span>
-          <span class="tool-scope"><i class="ti ti-shield"></i> ${t.scope || 'público'}</span>
-        </div>
-        <p class="tool-desc">${t.description}</p>
-      </div>
-    `).join('');
+    // Habilitar clics en los botones de Comandos Rápidos
+    document.querySelectorAll('.quick-prompt-btn').forEach(btn => {
+      btn.onclick = () => {
+        const prompt = btn.getAttribute('data-prompt');
+        if (prompt) {
+          $('ai-chat-input').value = prompt;
+          $('ai-chat-form').dispatchEvent(new Event('submit'));
+        }
+      };
+    });
+
 
     const histRes = await api('/ai/history?sessionId=default');
     const container = $('ai-chat-messages');

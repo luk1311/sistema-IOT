@@ -856,3 +856,56 @@ input[type="range"]::-webkit-slider-thumb {
   50% { transform: scale(1.2); opacity: 0.7; }
   100% { transform: scale(1); opacity: 1; }
 }
+
+/* Quick Prompt Buttons */
+.quick-prompt-btn {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border-glass);
+  padding: 12px;
+  border-radius: var(--radius-md);
+  color: var(--text-primary);
+  cursor: pointer;
+  text-align: left;
+  transition: all 0.2s ease;
+  width: 100%;
+}
+
+.quick-prompt-btn i {
+  font-size: 24px;
+  color: var(--accent-ai);
+  background: rgba(124, 106, 255, 0.1);
+  padding: 8px;
+  border-radius: 50%;
+  transition: all 0.3s ease;
+}
+
+.quick-prompt-btn .quick-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.quick-prompt-btn .quick-text strong {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.quick-prompt-btn .quick-text span {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.quick-prompt-btn:hover {
+  background: rgba(124, 106, 255, 0.08);
+  border-color: rgba(124, 106, 255, 0.3);
+  transform: translateY(-2px);
+}
+
+.quick-prompt-btn:hover i {
+  transform: scale(1.1);
+  box-shadow: 0 0 10px rgba(124, 106, 255, 0.3);
+}
