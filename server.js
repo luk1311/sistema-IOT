@@ -47,6 +47,7 @@ let aiService = null;
 let aiModules = null;
 const eventClients = new Set();
 const eventBus = new EventBus();
+const sessionManager = new SessionManager();
 
 const SCOPES = {
   super_admin: ['ai:chat', 'devices:read', 'telemetry:read', 'automations:read', 'users:read', 'system:read', 'devices:control', 'automations:create', 'automations:execute', 'automations:stop', 'voice:use', 'memory:read', 'memory:write', 'groups:read'],
@@ -582,7 +583,8 @@ const deps = {
   crypto, firestore, validDeviceId, validateDevicePatch, PERMISSIONS, SCOPES, runAutomationInBackend, executeBackendToolCall, eventClients,
   getIotStore: () => iotStore,
   getIotMqttClient: () => iotMqttClient,
-  getAiService: () => aiService
+  getAiService: () => aiService,
+  sessionManager
 };
 
 const authRoutes = require('./src/routes/auth.routes')(deps);
