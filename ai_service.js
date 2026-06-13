@@ -523,7 +523,10 @@ async function createAiService({
         if (criticalCall) {
           // Si es crítica, detenemos la ejecución y solicitamos aprobación humana
           const toolName = criticalCall.function.name;
-          const args = criticalCall.function.arguments || {};
+          let args = criticalCall.function.arguments || {};
+          if (typeof args === 'string') {
+            try { args = JSON.parse(args); } catch (e) {}
+          }
           const confirmationToken = crypto.randomUUID();
 
           pendingConfirmations.set(confirmationToken, {
@@ -566,7 +569,10 @@ async function createAiService({
 
         for (const toolCall of responseMessage.tool_calls) {
           const toolName = toolCall.function.name;
-          const args = toolCall.function.arguments || {};
+          let args = toolCall.function.arguments || {};
+          if (typeof args === 'string') {
+            try { args = JSON.parse(args); } catch (e) {}
+          }
           let result;
 
           try {
