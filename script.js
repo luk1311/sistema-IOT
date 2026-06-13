@@ -1068,21 +1068,44 @@ function appendAiChatMessage(role, content, isHtml = false) {
 }
 
 function createConfirmationCard(container, token, action) {
-  const actionDetails = action.calls
-    ? action.calls.map((item) => `${item.tool}: ${JSON.stringify(item.arguments)}`).join('\n')
-    : JSON.stringify(action.arguments, null, 2);
+  // Traducir acciones técnicas a lenguaje natural
+  const actionNames = {
+    'stopAutomation': 'Detener Automatización',
+    'startAutomation': 'Iniciar Automatización',
+    'toggleAutomation': 'Alternar estado de Automatización',
+    'sendCommand': 'Enviar comando físico al dispositivo',
+    'updateDeviceConfiguration': 'Modificar configuración del dispositivo'
+  };
+  
+  const readableAction = actionNames[action.tool] || action.tool;
+
+  // Formatear argumentos a lista amigable
+  let argsHtml = '';
+  if (action.arguments && Object.keys(action.arguments).length > 0) {
+    argsHtml = '<ul style="margin:0; padding-left:16px; list-style-type:circle; color: var(--text-primary);">';
+    for (const [key, val] of Object.entries(action.arguments)) {
+      const readableKey = key.replace(/([A-Z])/g, ' $1').replace(/^./, str => str.toUpperCase());
+      argsHtml += `<li style="margin-bottom:4px;"><strong style="color:var(--accent-online);">${escapeHtml(readableKey)}:</strong> ${escapeHtml(String(val))}</li>`;
+    }
+    argsHtml += '</ul>';
+  } else {
+    argsHtml = '<span style="color:var(--text-muted);">Sin parámetros específicos</span>';
+  }
+
   const card = document.createElement('div');
   card.className = 'ai-confirm-card';
   card.innerHTML = `
-    <div class="confirm-card-title"><i class="ti ti-alert-triangle"></i> Confirmación Requerida</div>
-    <div class="confirm-card-details">
-      <span><strong>Acción:</strong> ${escapeHtml(action.tool)}</span>
-      <span><strong>Parámetros:</strong></span>
-      <pre>${escapeHtml(actionDetails)}</pre>
+    <div class="confirm-card-title"><i class="ti ti-alert-triangle"></i> Autorización de Seguridad Requerida</div>
+    <div class="confirm-card-details" style="background: rgba(0,0,0,0.2); border: none; border-left: 3px solid #ff5252; padding: 12px 16px; border-radius: 4px;">
+      <p style="margin: 0 0 10px 0; color: #fff; font-size: 14px;"><strong>Tadashy quiere:</strong> ${escapeHtml(readableAction)}</p>
+      <div style="font-size: 13px; color: var(--text-secondary);">
+        <p style="margin: 0 0 6px 0; font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted);">Detalles de la orden:</p>
+        ${argsHtml}
+      </div>
     </div>
     <div class="confirm-card-actions">
-      <button class="confirm-btn-yes"><i class="ti ti-check"></i> Confirmar y Ejecutar</button>
-      <button class="confirm-btn-no"><i class="ti ti-x"></i> Cancelar</button>
+      <button class="confirm-btn-yes"><i class="ti ti-check"></i> Aprobar Acción</button>
+      <button class="confirm-btn-no"><i class="ti ti-x"></i> Rechazar</button>
     </div>
   `;
 
