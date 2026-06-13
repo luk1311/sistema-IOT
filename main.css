@@ -747,8 +747,8 @@ input[type="range"]::-webkit-slider-thumb {
 
 /* AI Confirmation Card Styles */
 .ai-confirm-card {
-  background: rgba(255, 60, 60, 0.05);
-  border: 1px solid rgba(255, 60, 60, 0.3);
+  background: rgba(255, 184, 0, 0.05);
+  border: 1px solid rgba(255, 184, 0, 0.3);
   border-radius: var(--radius-md);
   padding: 16px;
   margin-top: 12px;
@@ -757,7 +757,7 @@ input[type="range"]::-webkit-slider-thumb {
 }
 
 .confirm-card-title {
-  color: #ff5252;
+  color: var(--accent-warning);
   font-weight: 600;
   font-size: 14px;
   display: flex;
@@ -770,7 +770,7 @@ input[type="range"]::-webkit-slider-thumb {
 
 .confirm-card-title i {
   font-size: 18px;
-  animation: pulse-danger 2s infinite;
+  animation: pulse-warning 2s infinite;
 }
 
 .confirm-card-details {
@@ -792,7 +792,7 @@ input[type="range"]::-webkit-slider-thumb {
   padding: 8px;
   border-radius: 4px;
   overflow-x: auto;
-  color: #00e676;
+  color: var(--accent-online);
 }
 
 .confirm-card-actions {
@@ -817,15 +817,15 @@ input[type="range"]::-webkit-slider-thumb {
 }
 
 .confirm-btn-yes {
-  background: rgba(255, 82, 82, 0.15);
-  color: #ff5252;
-  border: 1px solid rgba(255, 82, 82, 0.4);
+  background: rgba(62, 207, 142, 0.15);
+  color: var(--accent-online);
+  border: 1px solid rgba(62, 207, 142, 0.4);
 }
 
 .confirm-btn-yes:hover:not(:disabled) {
-  background: rgba(255, 82, 82, 0.3);
+  background: rgba(62, 207, 142, 0.3);
   transform: translateY(-2px);
-  box-shadow: 0 4px 12px rgba(255, 82, 82, 0.2);
+  box-shadow: 0 4px 12px rgba(62, 207, 142, 0.2);
 }
 
 .confirm-btn-yes:disabled {
@@ -840,8 +840,9 @@ input[type="range"]::-webkit-slider-thumb {
 }
 
 .confirm-btn-no:hover:not(:disabled) {
-  background: rgba(255, 255, 255, 0.1);
-  color: var(--text-primary);
+  background: rgba(255, 77, 77, 0.15);
+  color: var(--accent-offline-strong);
+  border-color: rgba(255, 77, 77, 0.4);
   transform: translateY(-2px);
 }
 
@@ -850,7 +851,7 @@ input[type="range"]::-webkit-slider-thumb {
   to { opacity: 1; transform: translateY(0); }
 }
 
-@keyframes pulse-danger {
+@keyframes pulse-warning {
   0% { transform: scale(1); opacity: 1; }
   50% { transform: scale(1.2); opacity: 0.7; }
   100% { transform: scale(1); opacity: 1; }

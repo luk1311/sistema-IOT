@@ -1096,7 +1096,7 @@ function createConfirmationCard(container, token, action) {
   card.className = 'ai-confirm-card';
   card.innerHTML = `
     <div class="confirm-card-title"><i class="ti ti-alert-triangle"></i> Autorización de Seguridad Requerida</div>
-    <div class="confirm-card-details" style="background: rgba(0,0,0,0.2); border: none; border-left: 3px solid #ff5252; padding: 12px 16px; border-radius: 4px;">
+    <div class="confirm-card-details" style="background: rgba(0,0,0,0.2); border: none; border-left: 3px solid var(--accent-warning); padding: 12px 16px; border-radius: 4px;">
       <p style="margin: 0 0 10px 0; color: #fff; font-size: 14px;"><strong>Tadashy quiere:</strong> ${escapeHtml(readableAction)}</p>
       <div style="font-size: 13px; color: var(--text-secondary);">
         <p style="margin: 0 0 6px 0; font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted);">Detalles de la orden:</p>
