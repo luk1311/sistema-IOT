@@ -946,13 +946,12 @@ const server = http.createServer(app);
   const frontendDistPath = path.join(__dirname, 'frontend', 'dist');
   app.use(express.static(frontendDistPath));
   
-  // Catch-All para React Router (SPA) - Compatible con Express 5
-  app.get('/(.*)', (req, res) => {
-    // Evitar interceptar rutas API que no existen
-    if (req.path.startsWith('/api/') || req.path.startsWith('/auth/')) {
-      return res.status(404).json({ error: 'Endpoint no encontrado' });
+  // Catch-All para React Router (SPA) - Compatible con Express 5 usando middleware
+  app.use((req, res, next) => {
+    if (req.method === 'GET' && !req.path.startsWith('/api/') && !req.path.startsWith('/auth/')) {
+      return res.sendFile(path.join(frontendDistPath, 'index.html'));
     }
-    res.sendFile(path.join(frontendDistPath, 'index.html'));
+    next();
   });
 
   server.listen(PORT, () => {
