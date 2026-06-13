@@ -63,7 +63,11 @@ async function api(path, options = {}) {
     throw new Error('API Offline o inalcanzable');
   }
 
-  const data = await res.json().catch(() => ({}));
+  let data = {};
+  const contentType = res.headers.get('content-type');
+  if (contentType && contentType.includes('application/json')) {
+    data = await res.json().catch(() => ({}));
+  }
   
   if (res.status === 401 || res.status === 403) {
     if (path !== '/auth/login' && auth) {

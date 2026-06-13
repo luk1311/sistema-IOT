@@ -11,6 +11,7 @@ module.exports = function(deps) {
     if (!user || !body.password || !verifyPassword(body.password, user)) {
       return res.status(401).json({ error: 'Usuario o contraseña incorrectos' });
     }
+    if (!process.env.JWT_SECRET) console.warn('[Seguridad] JWT_SECRET no definido, usando clave insegura por defecto.');
     const token = jwt.sign(
       { userId: user.id, role: user.role },
       process.env.JWT_SECRET || 'tadashy_super_secret_key_12345!',
