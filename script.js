@@ -726,6 +726,45 @@ async function loadAiChat() {
     $('ai-info-endpoint').textContent = cap.ollamaUrl || 'Desconocido';
     $('ai-model-badge').innerHTML = `<i class="ti ti-brain"></i> ${cap.model || 'Mistral'}`;
 
+    // Auto-reparación para navegadores con index.html atascado en caché (Service Workers viejos)
+    const oldToolsList = $('ai-tools-list');
+    if (oldToolsList) {
+      const h4 = oldToolsList.previousElementSibling;
+      if (h4 && h4.tagName === 'H4') h4.textContent = 'Comandos Rápidos';
+      oldToolsList.outerHTML = `
+        <div id="ai-quick-prompts" style="display: flex; flex-direction: column; gap: 10px;">
+          <button class="quick-prompt-btn" data-prompt="¿Cuántos dispositivos hay conectados en la red y cuál es su estado?">
+            <i class="ti ti-router"></i>
+            <div class="quick-text">
+              <strong>Escanear Red IoT</strong>
+              <span>Estado de dispositivos</span>
+            </div>
+          </button>
+          <button class="quick-prompt-btn" data-prompt="Muestra un resumen de las automatizaciones activas en este momento.">
+            <i class="ti ti-logic-and"></i>
+            <div class="quick-text">
+              <strong>Automatizaciones</strong>
+              <span>Reglas activas</span>
+            </div>
+          </button>
+          <button class="quick-prompt-btn" data-prompt="Revisa la telemetría reciente del brazo robótico, ¿todo está bien?">
+            <i class="ti ti-activity"></i>
+            <div class="quick-text">
+              <strong>Analizar Telemetría</strong>
+              <span>Revisar métricas y alertas</span>
+            </div>
+          </button>
+          <button class="quick-prompt-btn" data-prompt="Quiero enviar un comando físico al brazo robótico para mover el servo base a 90 grados.">
+            <i class="ti ti-hand-grab"></i>
+            <div class="quick-text">
+              <strong>Control Robótico</strong>
+              <span>Mover servos y hardware</span>
+            </div>
+          </button>
+        </div>
+      `;
+    }
+
     // Habilitar clics en los botones de Comandos Rápidos
     document.querySelectorAll('.quick-prompt-btn').forEach(btn => {
       btn.onclick = () => {
