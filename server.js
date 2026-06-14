@@ -8,9 +8,16 @@ const path = require('path');
 const crypto = require('crypto');
 const { initializeApp, cert } = require('firebase-admin/app');
 const { getFirestore } = require('firebase-admin/firestore');
-const serviceAccount = require('./firebase-key.json');
-initializeApp({ credential: cert(serviceAccount) });
-const firestore = getFirestore();
+let serviceAccount = null;
+let firestore = null;
+try {
+  serviceAccount = require('./firebase-key.json');
+  initializeApp({ credential: cert(serviceAccount) });
+  firestore = getFirestore();
+  console.log('[Firebase] Inicializado con éxito.');
+} catch (error) {
+  console.warn('[Firebase] No se encontró firebase-key.json o falló la inicialización. Firebase desactivado.');
+}
 const mqtt = require('mqtt');
 const { createIotStore, normalizeDeviceId, parseJson } = require('./iot_store');
 const { createAiService } = require('./ai_service');
@@ -218,6 +225,10 @@ function ensureDb() {
 let dbCache = { users: [], history: [], automations: [], devices: [] };
 
 async function loadDbFromFirebase() {
+  if (!firestore) {
+    console.log('[DB] Omitiendo descarga de Firebase (No configurado).');
+    return;
+  }
   console.log('[DB] Descargando datos desde Firebase Firestore...');
   const collections = ['users', 'history', 'automations', 'devices'];
   for (const coll of collections) {
@@ -238,7 +249,7 @@ async function loadDbFromFirebase() {
       createdAt: new Date().toISOString()
     };
     dbCache.users.push(defaultAdmin);
-    firestore.collection('users').doc(defaultAdmin.id).set(defaultAdmin).catch(console.error);
+    if (firestore) firestore.collection('users').doc(defaultAdmin.id).set(defaultAdmin).catch(console.error);
     console.log('[DB] Se ha creado un usuario admin por defecto.');
   }
   console.log('[DB] Firebase sincronizado correctamente.');
@@ -332,7 +343,7 @@ function addHistory(db, user, type, detail, metadata = {}) {
   };
   db.history.unshift(historyItem);
   db.history = db.history.slice(0, 500);
-  firestore.collection('history').doc(historyItem.id).set(historyItem).catch(console.error);
+  if (firestore) firestore.collection('history').doc(historyItem.id).set(historyItem).catch(console.error);
 }
 
 function createStructuredAutomation(db, user, body, correlationId = crypto.randomUUID()) {
@@ -350,7 +361,7 @@ function createStructuredAutomation(db, user, body, correlationId = crypto.rando
     createdAt: new Date().toISOString()
   };
   db.automations.unshift(automation);
-  firestore.collection('automations').doc(automation.id).set(automation).catch(console.error);
+  if (firestore) firestore.collection('automations').doc(automation.id).set(automation).catch(console.error);
   addHistory(db, user, 'automation', `Creo automatizacion ${automation.name}`, {
     automationId: automation.id,
     correlationId
