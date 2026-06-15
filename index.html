@@ -138,17 +138,9 @@
           </div>
         </div>
 
-        <div class="flex-between" style="margin-bottom: 24px; margin-top: 24px;">
-          <h3 class="font-outfit" style="font-size: 18px; color: var(--text-primary);">Widgets del Sistema</h3>
-          <button id="edit-dashboard-btn" class="btn secondary-btn">
-            <span class="material-symbols-outlined">edit</span> Editar Panel
-          </button>
-        </div>
-
-        <div id="widget-container" class="widget-container">
+        <div class="dashboard-grid">
           <!-- Brazo Robótico Card -->
-          <div class="glass-panel panel-p-lg widget" data-w="8" data-id="widget-robot">
-            <div class="drag-handle"><span class="material-symbols-outlined">drag_indicator</span></div>
+          <div class="glass-panel panel-p-lg col-8">
             <div class="flex-between" style="margin-bottom: 24px;">
               <h3 class="font-outfit"
                 style="font-size: 20px; color: var(--text-primary); display: flex; align-items: center; gap: 8px;">
@@ -179,8 +171,7 @@
           </div>
 
           <!-- Log de Sistema -->
-          <div class="glass-panel panel-p-md widget" data-w="4" data-id="widget-logs" style="display: flex; flex-direction: column; max-height: 400px;">
-            <div class="drag-handle"><span class="material-symbols-outlined">drag_indicator</span></div>
+          <div class="glass-panel panel-p-md col-4" style="display: flex; flex-direction: column; max-height: 400px;">
             <div class="flex-between" style="margin-bottom: 16px;">
               <span class="font-outfit" style="font-size: 16px; font-weight: 600;">System Logs</span>
               <button id="clear-log-btn" class="btn" style="padding: 4px 8px;"><span class="material-symbols-outlined"
@@ -465,10 +456,9 @@
     </div>
   </div>
 
-  <script src="https://cdn.jsdelivr.net/npm/sortablejs@latest/Sortable.min.js" defer></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js" defer></script>
   <script src="https://cdn.jsdelivr.net/npm/mqtt/dist/mqtt.min.js" defer></script>
-  <script src="script.js?v=13" defer></script>
+  <script src="script.js?v=14" defer></script>
   <script>
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => {
