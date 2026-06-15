@@ -1349,3 +1349,41 @@ bindEvents();
 hydrateMqttForm();
 updateVoiceStatus(handsFreeMode ? 'Manos libres activo' : 'Voz lista · Hey TADASHY');
 renderShell();
+
+// --- Widget Initialization ---
+
+
+
+function initDashboardWidgets() {
+  const container = document.getElementById('widget-container');
+  if (container && window.Sortable) {
+    new window.Sortable(container, {
+      animation: 150,
+      handle: '.drag-handle',
+      ghostClass: 'widget-ghost',
+      store: {
+        get: function (sortable) {
+          var order = localStorage.getItem('tadashy_layout');
+          return order ? order.split('|') : [];
+        },
+        set: function (sortable) {
+          var order = sortable.toArray();
+          localStorage.setItem('tadashy_layout', order.join('|'));
+        }
+      }
+    });
+  }
+
+  const editBtn = document.getElementById('edit-dashboard-btn');
+  if (editBtn) {
+    editBtn.addEventListener('click', () => {
+      container.classList.toggle('editing-mode');
+      const isEditing = container.classList.contains('editing-mode');
+      editBtn.innerHTML = isEditing ? '<span class="material-symbols-outlined">save</span> Guardar Panel' : '<span class="material-symbols-outlined">edit</span> Editar Panel';
+    });
+  }
+}
+
+window.addEventListener('load', () => {
+  setTimeout(initDashboardWidgets, 500);
+});

@@ -158,12 +158,64 @@ h1, h2, h3, h4, .font-outfit {
   border-radius: var(--radius-lg);
   transition: var(--transition-smooth);
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+  position: relative;
 }
 
 .glass-panel:hover {
   border-color: rgba(255, 255, 255, 0.2);
   box-shadow: 0 12px 40px rgba(0, 0, 0, 0.4);
-  transform: translateY(-2px);
+}
+
+/* Widgets & Drag and Drop */
+.widget-container {
+  display: grid;
+  grid-template-columns: repeat(12, 1fr);
+  gap: 24px;
+  align-items: start;
+}
+
+.widget {
+  grid-column: span 12;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+@media (min-width: 1024px) {
+  .widget[data-w="8"] { grid-column: span 8; }
+  .widget[data-w="4"] { grid-column: span 4; }
+  .widget[data-w="12"] { grid-column: span 12; }
+  .widget[data-w="6"] { grid-column: span 6; }
+}
+
+.drag-handle {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  cursor: grab;
+  color: var(--text-muted);
+  display: none;
+  z-index: 10;
+  padding: 4px;
+  border-radius: 4px;
+  background: rgba(255,255,255,0.05);
+  transition: var(--transition-smooth);
+}
+.drag-handle:hover { color: var(--accent-ai); background: rgba(138, 43, 226, 0.15); }
+.drag-handle:active { cursor: grabbing; }
+
+.editing-mode .drag-handle { display: inline-flex; }
+.editing-mode .widget { border: 1px dashed rgba(138, 43, 226, 0.4); animation: wiggle 3s infinite; }
+
+.widget-ghost {
+  opacity: 0.4;
+  background: rgba(138, 43, 226, 0.05);
+  border: 2px dashed var(--accent-ai) !important;
+}
+
+@keyframes wiggle {
+  0% { transform: rotate(0deg); }
+  25% { transform: rotate(-0.5deg); }
+  50% { transform: rotate(0deg); }
+  75% { transform: rotate(0.5deg); }
+  100% { transform: rotate(0deg); }
 }
 
 .panel-p-lg { padding: 24px; }
