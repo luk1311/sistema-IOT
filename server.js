@@ -678,13 +678,7 @@ app.get('/api/voice/config', (req, res) => {
 
 app.use('/api', (req, res) => res.status(404).json({ error: 'Ruta API no encontrada' }));
 
-// SPA Fallback for React Router
-app.use((req, res, next) => {
-  if (req.url.startsWith('/api/')) return next();
-  res.sendFile(path.join(__dirname, 'frontend/dist/index.html'), (err) => {
-    if (err) res.status(404).send('Frontend no construido o no encontrado');
-  });
-});
+
 
 // Global Error Handler
 app.use((err, req, res, next) => {
