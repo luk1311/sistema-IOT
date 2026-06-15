@@ -632,12 +632,51 @@ async function loadAutomations() {
 async function createAutomation(event) {
   event.preventDefault();
   try {
-    const steps = JSON.parse($('auto-steps').value);
+    const container = document.getElementById('visual-steps-container');
+    if (!container) return;
+    
+    const cards = container.querySelectorAll('.step-card');
+    const steps = [];
+    cards.forEach(card => {
+      const action = card.querySelector('.step-action').value;
+      const delay = parseInt(card.querySelector('.step-delay').value);
+      
+      if (action.startsWith('servo_')) {
+        const servoIdx = parseInt(action.replace('servo_', ''));
+        const value = parseInt(card.querySelector('.step-value').value);
+        steps.push({
+          servo: servoIdx,
+          angle: isNaN(value) ? 90 : value,
+          delay: isNaN(delay) ? 0 : delay
+        });
+      } else if (action === 'wait') {
+        steps.push({
+          delay: isNaN(delay) ? 1000 : delay
+        });
+      } else if (action === 'topic') {
+        const payloadStr = card.querySelector('.step-value').value;
+        const topicName = card.querySelector('.step-topic-input').value;
+        if (topicName) {
+           steps.push({
+             topic: topicName,
+             payload: payloadStr,
+             delay: isNaN(delay) ? 0 : delay
+           });
+        }
+      }
+    });
+
+    if (steps.length === 0) return addLog('Añade al menos un paso a la rutina', 'warn');
+
     await api('/automations', {
       method: 'POST',
       body: JSON.stringify({ name: $('auto-name').value.trim(), steps })
     });
+    
     event.target.reset();
+    container.innerHTML = '';
+    addVisualStep(); 
+
     await loadAutomations();
     saveHistory('automation', 'Automatización guardada');
     addLog('Automatización guardada exitosamente', 'ok');
@@ -1353,3 +1392,81 @@ hydrateMqttForm();
 updateVoiceStatus(handsFreeMode ? 'Manos libres activo' : 'Voz lista · Hey TADASHY');
 renderShell();
 
+// --- Visual Automation Builder ---
+let visualStepCount = 0;
+
+function addVisualStep() {
+  const container = document.getElementById('visual-steps-container');
+  if (!container) return;
+
+  const stepId = `step-${visualStepCount++}`;
+  const stepCard = document.createElement('div');
+  stepCard.className = 'step-card';
+  stepCard.id = stepId;
+
+  stepCard.innerHTML = `
+    <div class="step-row">
+      <select class="input-futuristic step-action" style="margin: 0; padding: 8px;" onchange="handleStepActionChange('${stepId}')">
+        <option value="servo_1">Mover Base (Servo 1)</option>
+        <option value="servo_2">Mover Hombro (Servo 2)</option>
+        <option value="servo_3">Mover Codo (Servo 3)</option>
+        <option value="servo_4">Mover Muñeca (Servo 4)</option>
+        <option value="wait">Esperar (Pausa)</option>
+        <option value="topic">Enviar Mensaje (MQTT)</option>
+      </select>
+      
+      <div class="step-dynamic-inputs" style="flex: 1; display: flex; gap: 8px;">
+        <input type="number" class="input-futuristic step-value" placeholder="Ángulo (0-180)" min="0" max="180" style="margin: 0; padding: 8px;" required>
+        <input type="text" class="input-futuristic step-topic-input" placeholder="Tópico (ej. brazo/luz)" style="margin: 0; padding: 8px; display: none;">
+      </div>
+      
+      <button type="button" class="step-delete-btn" onclick="document.getElementById('${stepId}').remove()" title="Eliminar paso">
+        <span class="material-symbols-outlined">delete</span>
+      </button>
+    </div>
+    <div class="step-row" style="margin-top: 4px;">
+      <span style="font-size: 13px; color: var(--text-muted); width: 140px; display: inline-flex; align-items: center; gap: 4px;"><span class="material-symbols-outlined" style="font-size: 16px;">timer</span> Espera antes del sgte:</span>
+      <input type="number" class="input-futuristic step-delay" placeholder="ms" value="1000" min="0" style="margin: 0; padding: 6px; width: 80px;" required>
+    </div>
+  `;
+
+  container.appendChild(stepCard);
+}
+
+window.handleStepActionChange = function(stepId) {
+  const card = document.getElementById(stepId);
+  if(!card) return;
+  const action = card.querySelector('.step-action').value;
+  const valueInput = card.querySelector('.step-value');
+  const topicInput = card.querySelector('.step-topic-input');
+  
+  if (action.startsWith('servo_')) {
+    valueInput.style.display = 'block';
+    valueInput.type = 'number';
+    valueInput.placeholder = 'Ángulo (0-180)';
+    valueInput.required = true;
+    topicInput.style.display = 'none';
+    topicInput.required = false;
+  } else if (action === 'wait') {
+    valueInput.style.display = 'none';
+    valueInput.required = false;
+    topicInput.style.display = 'none';
+    topicInput.required = false;
+  } else if (action === 'topic') {
+    valueInput.style.display = 'block';
+    valueInput.type = 'text';
+    valueInput.placeholder = 'Mensaje (Payload)';
+    valueInput.required = false;
+    topicInput.style.display = 'block';
+    topicInput.required = true;
+  }
+};
+
+document.addEventListener('DOMContentLoaded', () => {
+  const btn = document.getElementById('add-step-btn');
+  if (btn) btn.addEventListener('click', addVisualStep);
+  // Añadir el primer paso por defecto
+  if (document.getElementById('visual-steps-container')) {
+    addVisualStep();
+  }
+});
