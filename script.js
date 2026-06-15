@@ -346,7 +346,7 @@ function connectMqtt({ host, port, username, password }) {
     clientId: `tadashy_web_${Math.random().toString(16).slice(2, 8)}`,
     connectTimeout: 10000,   // Aumentado a 10s para redes lentas
     reconnectPeriod: 3000,   // Un respiro más largo antes de reconectar
-    keepalive: 60,           // Aumentado a 60s para evitar falsos "offline"
+    keepalive: 0,            // DESACTIVADO (0): El broker/proxy no corta la conexión por falta de PING
     clean: true,             // Sesión limpia
     resubscribe: true,       // Asegurar que reconecta las suscripciones
     protocolVersion: 4       // Compatibilidad robusta con Mosquitto/HiveMQ
