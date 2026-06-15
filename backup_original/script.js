@@ -216,8 +216,8 @@ function buildCards() {
           <svg width="140" height="82" viewBox="0 0 140 82" role="img" aria-label="Ángulo servo ${i}">
             <path class="arc-bg-s" d="M 12,70 A 58,58 0 0,1 128,70"/>
             <path class="arc-fill-s" id="arc${i}" d="M 12,70 A 58,58 0 0,1 128,70" stroke-dasharray="${arcLen}" stroke-dashoffset="${arcHalf}"/>
-            <line id="needle${i}" x1="70" y1="70" x2="70" y2="16" stroke="#b666ff" stroke-width="2" stroke-linecap="round" class="needle-s"/>
-            <circle cx="70" cy="70" r="4" fill="#8A2BE2"/>
+            <line id="needle${i}" x1="70" y1="70" x2="70" y2="16" stroke="#a78bff" stroke-width="2" stroke-linecap="round" class="needle-s"/>
+            <circle cx="70" cy="70" r="4" fill="#7c6aff"/>
             <text x="10" y="80" font-size="9" fill="#4a3f6b">0°</text>
             <text x="62" y="12" font-size="9" fill="#4a3f6b">90°</text>
             <text x="118" y="80" font-size="9" fill="#4a3f6b" text-anchor="end">180°</text>
