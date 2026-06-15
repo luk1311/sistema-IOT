@@ -344,9 +344,12 @@ function connectMqtt({ host, port, username, password }) {
     username,
     password,
     clientId: `tadashy_web_${Math.random().toString(16).slice(2, 8)}`,
-    connectTimeout: 6000,
-    reconnectPeriod: 2000,
-    keepalive: 30
+    connectTimeout: 10000,   // Aumentado a 10s para redes lentas
+    reconnectPeriod: 3000,   // Un respiro más largo antes de reconectar
+    keepalive: 60,           // Aumentado a 60s para evitar falsos "offline"
+    clean: true,             // Sesión limpia
+    resubscribe: true,       // Asegurar que reconecta las suscripciones
+    protocolVersion: 4       // Compatibilidad robusta con Mosquitto/HiveMQ
   });
 
   client.on('connect', () => {
