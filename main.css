@@ -213,6 +213,56 @@ h1, h2, h3, h4, .font-outfit {
   background: rgba(255, 77, 77, 0.2);
 }
 
+.btn-secondary {
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text-primary);
+  border: 1px solid var(--border-glass);
+}
+.btn-secondary:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+/* Automation Visual Steps */
+.step-card {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border-glass);
+  border-radius: var(--radius-sm);
+  padding: 12px;
+  margin-bottom: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  position: relative;
+  transition: var(--transition-smooth);
+}
+.step-card:hover {
+  border-color: rgba(138, 43, 226, 0.3);
+  background: rgba(138, 43, 226, 0.05);
+}
+.step-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.step-row select, .step-row input {
+  flex: 1;
+}
+.step-delete-btn {
+  background: transparent;
+  border: none;
+  color: var(--accent-offline);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8px;
+  border-radius: var(--radius-sm);
+  transition: var(--transition-smooth);
+}
+.step-delete-btn:hover {
+  background: rgba(255, 99, 71, 0.15);
+}
+
 .input-futuristic {
   width: 100%;
   background: rgba(255, 255, 255, 0.05);

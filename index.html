@@ -360,10 +360,16 @@
             <form id="automation-form" class="glass-panel panel-p-lg">
               <h3 class="font-outfit" style="margin-bottom: 16px; font-size: 18px;">Nueva Rutina</h3>
               <input type="text" id="auto-name" class="input-futuristic" placeholder="Nombre (ej. Secuencia Alfa)"
-                required style="margin-bottom: 12px;" />
-              <textarea id="auto-steps" class="input-futuristic"
-                placeholder="[{&quot;topic&quot;:&quot;brazo/servo/1&quot;,&quot;payload&quot;:&quot;90&quot;,&quot;delay&quot;:1000}]"
-                required style="margin-bottom: 16px; height: 120px; resize: none;"></textarea>
+                required style="margin-bottom: 16px;" />
+              
+              <!-- Visual Steps Container -->
+              <div id="visual-steps-container" style="min-height: 50px; margin-bottom: 16px;">
+                <!-- Steps injected via JS -->
+              </div>
+              
+              <button type="button" id="add-step-btn" class="btn btn-secondary" style="width: 100%; justify-content: center; margin-bottom: 16px; border: 1px dashed var(--border-glow); color: var(--accent-ai);">
+                <span class="material-symbols-outlined">add_circle</span> Añadir Acción
+              </button>
               <button type="submit" class="btn btn-primary" style="width: 100%; justify-content: center;">Guardar
                 Rutina</button>
             </form>
