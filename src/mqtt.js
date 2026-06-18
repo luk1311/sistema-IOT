@@ -2,7 +2,6 @@ import { $, escapeHtml, state } from './state.js';
 import { addLog } from './logger.js';
 import { api, saveHistory } from './api.js';
 import { hasPermission } from './auth.js';
-import { updateAngle } from './robot.js';
 import { refreshDevicesSoon } from './devices.js';
 import { applyEntityState } from './entities.js';
 
@@ -123,17 +122,8 @@ export function onMqttMessage(topic, payloadBuffer) {
 
   const deviceTopic = topic.match(/^devices\/([^/]+)\/(status|telemetry|config)$/);
   if (deviceTopic) refreshDevicesSoon();
-
-  const match = topic.match(/^brazo\/servo\/feedback\/(\d)$/);
-  if (match) {
-    const idx = parseInt(match[1], 10);
-    const angle = parseInt(payload, 10);
-    if (idx >= 1 && idx <= 4 && angle >= 0 && angle <= 180) {
-      updateAngle(idx, angle);
-      const slider = $(`slider${idx}`);
-      if (slider && document.activeElement !== slider) slider.value = angle;
-    }
-  }
+  // El feedback del brazo (brazo/servo/feedback/N) se resuelve vía applyEntityState,
+  // que actualiza el gauge y el resumen del dashboard desde el modelo de entidades.
 }
 
 export function addMqttRow(topic, payload) {

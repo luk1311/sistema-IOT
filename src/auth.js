@@ -2,7 +2,6 @@ import { $, state, roleLabels } from './state.js';
 import { api } from './api.js';
 import { addLog } from './logger.js';
 import { switchView } from './views.js';
-import { buildCards } from './robot.js';
 import { connectIotEvents } from './devices.js';
 import { autoConnectMqtt } from './mqtt.js';
 import { loadAll } from './loaders.js';
@@ -36,8 +35,7 @@ export function renderShell() {
   } else {
     switchView('dashboard');
   }
-  buildCards();
-  loadAll();
+  loadAll(); // loadDevices() rinde el panel del brazo (#servo-grid) desde sus entidades
   connectIotEvents();
   autoConnectMqtt();
 }

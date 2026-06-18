@@ -2,7 +2,7 @@ import { API, $, escapeHtml, state } from './state.js';
 import { addLog } from './logger.js';
 import { api } from './api.js';
 import { hasPermission } from './auth.js';
-import { deviceEntitiesHtml, reindexEntities } from './entities.js';
+import { deviceEntitiesHtml, reindexEntities, renderBrazoPanel, hydrateEntityCharts } from './entities.js';
 
 export async function loadDevices() {
   if (!hasPermission('view_dashboard')) return;
@@ -58,6 +58,10 @@ export function renderDevices() {
 
   // Reconstruir el índice tópico→entidad para resolver MQTT entrante.
   reindexEntities();
+  // Render del panel de gauges del brazo desde su modelo de entidades.
+  renderBrazoPanel();
+  // Gráficas de sensores (histórico de telemetría).
+  hydrateEntityCharts();
 }
 
 export function refreshDevicesSoon() {

@@ -3,11 +3,16 @@
 // Ver docs/entity-model.md.
 import { escapeHtml, state, INTERVALO } from './state.js';
 import { publish } from './mqtt.js';
+import { api } from './api.js';
+
+const ARC_LEN = Math.PI * 58; // longitud del arco del gauge (radio 58)
 
 // Índice: tópico de estado -> { deviceId, entity }, para resolver MQTT entrante rápido.
 let stateTopicIndex = new Map();
 // Throttle por entidad para sliders (igual que el control del brazo).
 const lastSent = new Map();
+// Instancias Chart.js por widget (para destruir/actualizar).
+const chartRegistry = new Map();
 
 export function reindexEntities() {
   stateTopicIndex = new Map();
@@ -55,7 +60,45 @@ function formatSensor(entity, value) {
 
 // --- Render ---
 
-function widgetHtml(device, entity) {
+function rangeGaugeHtml(device, entity) {
+  const id = widgetId(device.deviceId, entity.id);
+  const data = `data-device="${escapeHtml(device.deviceId)}" data-entity="${escapeHtml(entity.id)}" data-cap="range"`;
+  const min = Number(entity.min ?? 0);
+  const max = Number(entity.max ?? 180);
+  const step = Number(entity.step ?? 1);
+  const def = Number(entity.default ?? min);
+  const mid = Math.round((min + max) / 2);
+  const unit = entity.unit ? escapeHtml(entity.unit) : '°';
+  const icon = entity.ui?.icon ? escapeHtml(entity.ui.icon) : 'ti-settings';
+  const frac = max > min ? (def - min) / (max - min) : 0;
+  const offset = (ARC_LEN - frac * ARC_LEN).toFixed(1);
+  const presets = [min, Math.round(min + (max - min) * 0.25), mid, Math.round(min + (max - min) * 0.75), max];
+  return `
+    <div class="servo-card entity-widget" id="${id}" ${data}>
+      <div class="servo-header">
+        <div class="servo-title"><i class="ti ${icon}"></i>${escapeHtml(entity.name)}</div>
+        <div class="servo-angle"><span class="num">${def}</span><span class="deg">${unit}</span></div>
+      </div>
+      <div class="arc-wrap">
+        <svg width="140" height="82" viewBox="0 0 140 82" role="img" aria-label="${escapeHtml(entity.name)}">
+          <path class="arc-bg-s" d="M 12,70 A 58,58 0 0,1 128,70"/>
+          <path class="arc-fill-s" d="M 12,70 A 58,58 0 0,1 128,70" stroke-dasharray="${ARC_LEN.toFixed(1)}" stroke-dashoffset="${offset}"/>
+          <line class="needle-s" x1="70" y1="70" x2="70" y2="16" stroke="#b666ff" stroke-width="2" stroke-linecap="round"/>
+          <circle cx="70" cy="70" r="4" fill="#8A2BE2"/>
+          <text x="10" y="80" font-size="9" fill="#4a3f6b">${min}</text>
+          <text x="62" y="12" font-size="9" fill="#4a3f6b">${mid}</text>
+          <text x="118" y="80" font-size="9" fill="#4a3f6b" text-anchor="end">${max}</text>
+        </svg>
+      </div>
+      <input type="range" class="entity-range" min="${min}" max="${max}" step="${step}" value="${def}" data-unit="${unit}">
+      <div class="slider-ticks"><span>${min}${unit}</span><span>${mid}${unit}</span><span>${max}${unit}</span></div>
+      <div class="presets">
+        ${presets.map((p) => `<button class="preset entity-preset" data-angle="${p}">${p}${unit}</button>`).join('')}
+      </div>
+    </div>`;
+}
+
+function widgetHtml(device, entity, opts = {}) {
   const id = widgetId(device.deviceId, entity.id);
   const data = `data-device="${escapeHtml(device.deviceId)}" data-entity="${escapeHtml(entity.id)}" data-cap="${entity.capability}"`;
   const icon = entity.ui?.icon ? `<i class="ti ${escapeHtml(entity.ui.icon)}"></i>` : '';
@@ -63,6 +106,7 @@ function widgetHtml(device, entity) {
 
   switch (entity.capability) {
     case 'range': {
+      if (opts.gauge) return rangeGaugeHtml(device, entity);
       const min = Number(entity.min ?? 0);
       const max = Number(entity.max ?? 100);
       const step = Number(entity.step ?? 1);
@@ -92,6 +136,7 @@ function widgetHtml(device, entity) {
       return `
         <div class="entity-widget" id="${id}" ${data}>
           <div class="entity-head">${label}<span class="entity-val entity-sensor">--</span></div>
+          <canvas class="entity-chart" height="70" aria-label="Histórico ${escapeHtml(entity.name)}"></canvas>
         </div>`;
     case 'text':
     default:
@@ -102,13 +147,28 @@ function widgetHtml(device, entity) {
   }
 }
 
-export function deviceEntitiesHtml(device) {
-  const entities = (device.entities || [])
+function sortedEntities(device) {
+  return (device.entities || [])
     .filter((e) => !e.ui?.hidden)
     .slice()
     .sort((a, b) => (a.ui?.order ?? 99) - (b.ui?.order ?? 99));
+}
+
+export function deviceEntitiesHtml(device) {
+  const entities = sortedEntities(device);
   if (!entities.length) return '';
   return `<div class="entity-grid">${entities.map((e) => widgetHtml(device, e)).join('')}</div>`;
+}
+
+// Llena el grid de gauges del modal del brazo desde su modelo de entidades.
+export function renderBrazoPanel() {
+  const grid = document.getElementById('servo-grid');
+  if (!grid) return;
+  const brazo = (state.devices || []).find((d) => d.deviceId === 'brazo');
+  const ranges = sortedEntities(brazo || {}).filter((e) => e.capability === 'range');
+  if (!ranges.length) return; // aún no cargó el brazo
+  if (grid.childElementCount === ranges.length) return; // ya renderizado: evita churn mid-drag
+  grid.innerHTML = ranges.map((e) => widgetHtml(brazo, e, { gauge: true })).join('');
 }
 
 // --- Estado entrante (MQTT) ---
@@ -124,23 +184,20 @@ export function applyEntityState(topic, payload) {
 
   switch (entity.capability) {
     case 'range': {
-      const slider = el.querySelector('.entity-range');
-      const valEl = el.querySelector('.entity-val');
       const num = Number(value);
-      if (Number.isFinite(num)) {
-        if (slider && document.activeElement !== slider) slider.value = num;
-        if (valEl) valEl.textContent = `${num}${entity.unit ? escapeHtml(entity.unit) : ''}`;
-      }
+      if (!Number.isFinite(num)) break;
+      const slider = el.querySelector('.entity-range');
+      if (slider && document.activeElement !== slider) slider.value = num;
+      updateRangeVisual(el, entity, num);
       break;
     }
-    case 'switch': {
-      const on = isOnPayload(entity, value);
-      setToggleVisual(el, on);
+    case 'switch':
+      setToggleVisual(el, isOnPayload(entity, value));
       break;
-    }
     case 'sensor': {
       const valEl = el.querySelector('.entity-sensor');
       if (valEl) valEl.textContent = formatSensor(entity, value);
+      pushChartPoint(widgetId(deviceId, entity.id), value);
       break;
     }
     case 'text': {
@@ -169,6 +226,105 @@ function setToggleVisual(el, on) {
   }
 }
 
+// Actualiza la parte visual de un range: etiqueta compacta o gauge, mas resumen dash-*.
+function updateRangeVisual(widget, entity, value) {
+  const unit = entity.unit ? escapeHtml(entity.unit) : '';
+  const valEl = widget.querySelector('.entity-val');
+  if (valEl) valEl.textContent = `${value}${unit}`;
+  if (widget.querySelector('.arc-fill-s')) {
+    const min = Number(entity.min ?? 0);
+    const max = Number(entity.max ?? 180);
+    const frac = max > min ? (value - min) / (max - min) : 0;
+    const num = widget.querySelector('.num');
+    const arc = widget.querySelector('.arc-fill-s');
+    const needle = widget.querySelector('.needle-s');
+    if (num) num.textContent = value;
+    if (arc) arc.style.strokeDashoffset = (ARC_LEN - frac * ARC_LEN).toFixed(1);
+    if (needle) needle.style.transform = `rotate(${(-90 + frac * 180).toFixed(1)}deg)`;
+  }
+  // Resumen del dashboard (ids dash-<entityId> coinciden con las entidades del brazo).
+  const dash = document.getElementById('dash-' + entity.id);
+  if (dash) dash.textContent = `${value}${entity.unit || '°'}`;
+}
+
+// Actualización optimista para acciones que no vienen por slider (reset, automatizaciones).
+export function optimisticRange(deviceId, entityId, value) {
+  const el = document.getElementById(widgetId(deviceId, entityId));
+  const found = findEntity(deviceId, entityId);
+  if (!el || !found) return;
+  const slider = el.querySelector('.entity-range');
+  if (slider && document.activeElement !== slider) slider.value = value;
+  updateRangeVisual(el, found.entity, Number(value));
+}
+
+// --- Gráficas (Chart.js) ---
+
+function buildChart(canvas, key, entity, points) {
+  if (!window.Chart) return;
+  const existing = chartRegistry.get(key);
+  if (existing) existing.destroy();
+  const chart = new window.Chart(canvas.getContext('2d'), {
+    type: 'line',
+    data: {
+      labels: points.map((p) => new Date(p.t).toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit', second: '2-digit' })),
+      datasets: [{
+        data: points.map((p) => p.v),
+        borderColor: '#8A2BE2',
+        backgroundColor: 'rgba(138,43,226,0.15)',
+        borderWidth: 2,
+        pointRadius: 0,
+        fill: true,
+        tension: 0.35
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      animation: false,
+      plugins: { legend: { display: false }, tooltip: { enabled: true } },
+      scales: {
+        x: { display: false },
+        y: { ticks: { color: 'rgba(255,255,255,0.4)', maxTicksLimit: 4 }, grid: { color: 'rgba(255,255,255,0.06)' } }
+      }
+    }
+  });
+  chartRegistry.set(key, chart);
+}
+
+function pushChartPoint(key, value) {
+  const chart = chartRegistry.get(key);
+  const num = Number(value);
+  if (!chart || !Number.isFinite(num)) return;
+  chart.data.labels.push(new Date().toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
+  chart.data.datasets[0].data.push(num);
+  if (chart.data.labels.length > 40) { chart.data.labels.shift(); chart.data.datasets[0].data.shift(); }
+  chart.update('none');
+}
+
+// Carga el histórico de telemetría y dibuja la gráfica de cada entidad sensor visible.
+export async function hydrateEntityCharts() {
+  if (!window.Chart) return;
+  for (const device of state.devices || []) {
+    for (const entity of device.entities || []) {
+      if (entity.capability !== 'sensor') continue;
+      const key = widgetId(device.deviceId, entity.id);
+      if (chartRegistry.has(key)) continue; // ya construida: se actualiza en vivo
+      const el = document.getElementById(key);
+      const canvas = el?.querySelector('.entity-chart');
+      if (!canvas) continue;
+      try {
+        const res = await api(`/devices/${device.deviceId}/telemetry?limit=40`);
+        const rows = (res.telemetry || []).filter((r) => !entity.mqtt?.state || r.topic === entity.mqtt.state);
+        const points = rows
+          .map((r) => ({ t: r.receivedAt, v: Number(readPayloadValue(entity, r.payload)) }))
+          .filter((p) => Number.isFinite(p.v))
+          .reverse();
+        buildChart(canvas, key, entity, points);
+      } catch (e) { /* sin histórico: gráfica vacía hasta que llegue telemetría */ }
+    }
+  }
+}
+
 // --- Interacción (delegada, instalada una vez) ---
 
 let controlsInitialized = false;
@@ -179,19 +335,17 @@ export function initEntityControls() {
 
   document.addEventListener('input', (event) => {
     const slider = event.target.closest?.('.entity-range');
-    if (!slider) return;
-    const widget = slider.closest('.entity-widget');
-    onRangeInput(widget, slider, false);
+    if (slider) onRangeInput(slider.closest('.entity-widget'), slider, false);
   });
 
   document.addEventListener('change', (event) => {
     const slider = event.target.closest?.('.entity-range');
-    if (!slider) return;
-    const widget = slider.closest('.entity-widget');
-    onRangeInput(widget, slider, true);
+    if (slider) onRangeInput(slider.closest('.entity-widget'), slider, true);
   });
 
   document.addEventListener('click', (event) => {
+    const preset = event.target.closest?.('.entity-preset');
+    if (preset) return onPresetClick(preset);
     const toggle = event.target.closest?.('.entity-toggle');
     if (toggle) return onToggleClick(toggle.closest('.entity-widget'));
     const press = event.target.closest?.('.entity-press');
@@ -201,22 +355,29 @@ export function initEntityControls() {
 
 function onRangeInput(widget, slider, force) {
   if (!widget) return;
-  const { device, entityId, entity } = resolveWidget(widget);
+  const { device, entity } = resolveWidget(widget);
   if (!entity?.mqtt?.set) return;
-  const key = `${device}:${entityId}`;
+  const key = `${device}:${entity.id}`;
   const now = Date.now();
   if (!force && now - (lastSent.get(key) || 0) <= INTERVALO) {
-    updateRangeLabel(widget, slider, entity);
+    updateRangeVisual(widget, entity, Number(slider.value));
     return;
   }
   lastSent.set(key, now);
   publish(entity.mqtt.set, slider.value);
-  updateRangeLabel(widget, slider, entity);
+  updateRangeVisual(widget, entity, Number(slider.value));
 }
 
-function updateRangeLabel(widget, slider, entity) {
-  const valEl = widget.querySelector('.entity-val');
-  if (valEl) valEl.textContent = `${slider.value}${entity.unit ? escapeHtml(entity.unit) : ''}`;
+function onPresetClick(preset) {
+  const widget = preset.closest('.entity-widget');
+  if (!widget) return;
+  const { entity } = resolveWidget(widget);
+  if (!entity?.mqtt?.set) return;
+  const value = preset.dataset.angle;
+  const slider = widget.querySelector('.entity-range');
+  if (slider) slider.value = value;
+  publish(entity.mqtt.set, value);
+  updateRangeVisual(widget, entity, Number(value));
 }
 
 function onToggleClick(widget) {
