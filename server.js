@@ -82,6 +82,7 @@ const HEARTBEAT_TIMEOUT_MS = Number(process.env.IOT_HEARTBEAT_TIMEOUT_MS || 1500
 const MQTT_URL = process.env.MQTT_URL || process.env.TADASHY_MQTT_URL || '';
 const MQTT_USERNAME = process.env.MQTT_USERNAME || process.env.TADASHY_MQTT_USERNAME || '';
 const MQTT_PASSWORD = process.env.MQTT_PASSWORD || process.env.TADASHY_MQTT_PASSWORD || '';
+const HA_DISCOVERY_PREFIX = process.env.HA_DISCOVERY_PREFIX || 'homeassistant';
 
 let iotStore = null;
 let iotMqttClient = null;
@@ -89,6 +90,7 @@ let aiService = null;
 let aiModules = null;
 let alertEngine = null;
 let ruleEngine = null;
+let cloudApis = null;
 let pushService = null;
 // Emisor de Web Push; se reasigna al servicio real en el arranque.
 let sendPush = () => {};
@@ -653,7 +655,7 @@ function startIotMqttBridge() {
     iotMqttClient.subscribe('devices/+/status');
     iotMqttClient.subscribe('devices/+/telemetry');
     iotMqttClient.subscribe('devices/+/config');
-    console.log('IoT MQTT bridge conectado y suscrito a devices/+/...');
+    console.log('IoT MQTT bridge conectado (devices/+/...)');
   });
 
   iotMqttClient.on('message', handleIotMqttMessage);
@@ -692,7 +694,8 @@ const deps = {
   getPushService: () => pushService,
   emitIotEvent,
   recordCommand: (deviceId, command) => { if (alertEngine) alertEngine.recordCommand(deviceId, command); },
-  sessionManager
+  sessionManager,
+  getCloudApis: () => cloudApis
 };
 
 const authRoutes = require('./src/routes/auth.routes')(deps);
@@ -816,6 +819,11 @@ const server = http.createServer(app);
   };
   alertEngine = createAlertEngine({ iotStore, emit: emitIotEvent, pushSender: (alert) => sendPush(alert) });
   ruleEngine = createRuleEngine({ iotStore, executeAction: executeRuleAction, onFire: onRuleFired });
+  cloudApis = require('./src/cloud-apis')({
+    iotStore,
+    emitIotEvent,
+    getIotMqttClient: () => iotMqttClient
+  });
 
   aiModules = {};
   aiModules.memoryManager = new MemoryManager(iotStore);

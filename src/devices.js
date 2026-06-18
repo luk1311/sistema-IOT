@@ -79,7 +79,13 @@ export function renderDevices() {
         </div>
         <div class="device-meta">
           <div><span>Ultimo heartbeat</span><strong>${escapeHtml(lastSeen)}</strong></div>
-          <div><span>Área</span><strong><button class="ghost-btn" data-edit-area="${escapeHtml(device.deviceId)}" style="padding:2px 6px; font-size:12px;">${escapeHtml(area)} ✎</button></strong></div>
+          <div>
+            <span>Área</span>
+            <strong>
+              <button class="ghost-btn" data-edit-area="${escapeHtml(device.deviceId)}" style="padding:2px 6px; font-size:12px;">${escapeHtml(area)} ✎</button>
+              <button class="ghost-btn" data-delete-device="${escapeHtml(device.deviceId)}" style="padding:2px 6px; font-size:12px; color: #ff4d4d; margin-left: 6px;" title="Eliminar dispositivo">🗑</button>
+            </strong>
+          </div>
         </div>
         ${deviceEntitiesHtml(device)}
         <div class="device-telemetry">${escapeHtml(telemetry)}</div>
@@ -87,6 +93,7 @@ export function renderDevices() {
   }).join('');
 
   grid.querySelectorAll('[data-edit-area]').forEach((b) => b.addEventListener('click', (e) => { e.stopPropagation(); editArea(b.dataset.editArea); }));
+  grid.querySelectorAll('[data-delete-device]').forEach((b) => b.addEventListener('click', (e) => { e.stopPropagation(); deleteDeviceUi(b.dataset.deleteDevice); }));
 
   // Reconstruir el índice tópico→entidad para resolver MQTT entrante.
   reindexEntities();
@@ -142,11 +149,61 @@ export function connectIotEvents() {
 }
 
 export async function discoverDevices() {
-  if (!hasPermission('manage_devices')) return addLog('No tienes permiso para descubrimiento IoT', 'err');
+  if (!hasPermission('manage_devices')) return addLog('No tienes permiso para sincronizar con la nube', 'err');
+  const btn = $('discover-devices-btn');
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = '<span class="material-symbols-outlined rotate">sync</span> Sincronizando...';
+  }
   try {
-    await api('/devices/discover', { method: 'POST' });
-    addLog('Solicitud de descubrimiento IoT enviada', 'ok');
+    const creds = {
+      tuyaClientId: localStorage.getItem('tadashy_tuya_client_id') || '',
+      tuyaSecret: localStorage.getItem('tadashy_tuya_secret') || '',
+      shellyAuthKey: localStorage.getItem('tadashy_shelly_auth_key') || ''
+    };
+    await api('/devices/cloud-sync', {
+      method: 'POST',
+      body: JSON.stringify(creds)
+    });
+    addLog('Sincronización con la nube completada', 'ok');
+    await loadDevices();
   } catch (error) {
-    addLog(`Descubrimiento IoT fallido: ${error.message}`, 'err');
+    addLog(`Sincronización fallida: ${error.message}`, 'err');
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = '<span class="material-symbols-outlined">cloud_download</span> Sincronizar Nube';
+    }
   }
 }
+
+export async function deleteDeviceUi(deviceId) {
+  if (!confirm(`¿Estás seguro de que deseas eliminar el dispositivo "${deviceId}"?`)) return;
+  try {
+    await api(`/devices/${deviceId}`, { method: 'DELETE' });
+    addLog(`Dispositivo "${deviceId}" eliminado exitosamente.`, 'ok');
+  } catch (e) {
+    addLog('No se pudo eliminar el dispositivo: ' + e.message, 'err');
+  }
+}
+
+export function showCloudConfigModal() {
+  if (!hasPermission('manage_devices')) return addLog('No tienes permiso para configurar la nube', 'err');
+  $('cloud-tuya-client-id').value = localStorage.getItem('tadashy_tuya_client_id') || '';
+  $('cloud-tuya-secret').value = localStorage.getItem('tadashy_tuya_secret') || '';
+  $('cloud-shelly-auth-key').value = localStorage.getItem('tadashy_shelly_auth_key') || '';
+  $('cloud-config-modal').style.display = 'flex';
+}
+
+export function closeCloudConfigModal() {
+  $('cloud-config-modal').style.display = 'none';
+}
+
+export async function saveCloudConfig() {
+  localStorage.setItem('tadashy_tuya_client_id', $('cloud-tuya-client-id').value.trim());
+  localStorage.setItem('tadashy_tuya_secret', $('cloud-tuya-secret').value.trim());
+  localStorage.setItem('tadashy_shelly_auth_key', $('cloud-shelly-auth-key').value.trim());
+  closeCloudConfigModal();
+  await discoverDevices();
+}
+

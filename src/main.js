@@ -4,7 +4,7 @@ import { login, logout } from './auth.js';
 import { switchView } from './views.js';
 import { resetAll, mover, irA, setModo } from './robot.js';
 import { conectarMqtt, disconnectMqtt, publish, hydrateMqttForm } from './mqtt.js';
-import { discoverDevices } from './devices.js';
+import { discoverDevices, showCloudConfigModal, closeCloudConfigModal, saveCloudConfig } from './devices.js';
 import { createUser, toggleUser, deleteUser } from './users.js';
 import { createAutomation, runAutomation, addVisualStep, handleStepActionChange } from './automations.js';
 import { clearHistory } from './history.js';
@@ -41,6 +41,10 @@ function bindEvents() {
   $('user-form').addEventListener('submit', createUser);
   $('clear-history').addEventListener('click', clearHistory);
   $('discover-devices-btn').addEventListener('click', discoverDevices);
+  $('cloud-config-btn')?.addEventListener('click', showCloudConfigModal);
+  $('close-cloud-config-modal')?.addEventListener('click', closeCloudConfigModal);
+  $('cancel-cloud-config-btn')?.addEventListener('click', closeCloudConfigModal);
+  $('save-cloud-config-btn')?.addEventListener('click', saveCloudConfig);
   $('export-config-btn')?.addEventListener('click', exportConfig);
   $('import-config-input')?.addEventListener('change', (event) => {
     importConfig(event.target.files[0]);

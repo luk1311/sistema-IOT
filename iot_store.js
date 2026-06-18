@@ -25,7 +25,7 @@ const BRAZO_ENTITIES = [
     mqtt: { set: 'brazo/servo/2', state: 'brazo/servo/feedback/2' }, ui: { icon: 'ti-arrow-up', order: 2 } },
   { id: 'elbow', name: 'Codo', capability: 'range', min: 0, max: 180, step: 1, unit: '°', default: 90,
     mqtt: { set: 'brazo/servo/3', state: 'brazo/servo/feedback/3' }, ui: { icon: 'ti-fold-up', order: 3 } },
-  { id: 'wrist', name: 'Muñeca', capability: 'range', min: 0, max: 180, step: 1, unit: '°', default: 90,
+  { id: 'wrist', name: 'Pinza', capability: 'range', min: 0, max: 180, step: 1, unit: '°', default: 90,
     mqtt: { set: 'brazo/servo/4', state: 'brazo/servo/feedback/4' }, ui: { icon: 'ti-hand-grab', order: 4 } }
 ];
 
@@ -213,6 +213,15 @@ async function createIotStore({ firestore = null } = {}) {
     });
   }
 
+  function deleteDevice(deviceId) {
+    const id = normalizeDeviceId(deviceId);
+    if (!id) return false;
+    devices.delete(id);
+    telemetry.delete(id);
+    unpersist('iot_devices', id);
+    return true;
+  }
+
   function setStatus(deviceId, status, metadata = {}) {
     const safeStatus = status === 'offline' ? 'offline' : 'online';
     const device = registerDevice(deviceId, { status: safeStatus, metadata });
@@ -228,16 +237,33 @@ async function createIotStore({ firestore = null } = {}) {
     const ts = nowIso();
     const parsed = sanitizeTelemetry(parseJson(payload, payload));
 
-    const existing = devices.get(id);
-    if (!existing) {
-      registerDevice(id, { status: 'online', lastTelemetry: parsed, lastSeen: ts });
+    const current = getDevice(id);
+    let nextTelemetry = (current && current.lastTelemetry && typeof current.lastTelemetry === 'object' && !Array.isArray(current.lastTelemetry))
+      ? { ...current.lastTelemetry }
+      : {};
+
+    if (current && current.config && Array.isArray(current.config.entities)) {
+      let matchedAny = false;
+      for (const entity of current.config.entities) {
+        if (entity.mqtt && entity.mqtt.state === topic) {
+          let val = parsed;
+          if (entity.mqtt.payloadKey && parsed && typeof parsed === 'object') {
+            val = parsed[entity.mqtt.payloadKey];
+          }
+          if (val !== undefined) {
+            nextTelemetry[entity.id] = val;
+            matchedAny = true;
+          }
+        }
+      }
+      if (!matchedAny) {
+        nextTelemetry = parsed;
+      }
     } else {
-      existing.status = 'online';
-      existing.lastTelemetry = parsed;
-      existing.lastSeen = ts;
-      existing.updatedAt = ts;
-      // sin persist: la telemetría es de alta frecuencia
+      nextTelemetry = parsed;
     }
+
+    registerDevice(id, { status: 'online', lastTelemetry: nextTelemetry, lastSeen: ts });
 
     const row = { id: ++telemetrySeq, deviceId: id, topic, payload: parsed, receivedAt: ts };
     const arr = telemetry.get(id) || [];
@@ -474,12 +500,14 @@ async function createIotStore({ firestore = null } = {}) {
 
   function close() { /* nada que cerrar */ }
 
-  // --- Seed del brazo si no existe / no tiene entidades ---
+  // --- Seed del brazo ---
+  // El brazo es un dispositivo de topología FIJA por hardware (4 servos, servo 4 = pinza),
+  // así que sus entidades se mantienen canónicas en cada arranque (no se editan por el usuario).
   const seededBrazo = getDevice('brazo');
   if (!seededBrazo) {
     registerDevice('brazo', { name: 'Brazo Robótico', type: 'robot', status: 'online', entities: BRAZO_ENTITIES });
-  } else if (!seededBrazo.entities || seededBrazo.entities.length === 0) {
-    registerDevice('brazo', { type: 'robot', entities: BRAZO_ENTITIES });
+  } else {
+    registerDevice('brazo', { entities: BRAZO_ENTITIES });
   }
 
   return {
@@ -488,6 +516,7 @@ async function createIotStore({ firestore = null } = {}) {
     listDevices,
     registerDevice,
     updateDevice,
+    deleteDevice,
     setStatus,
     addTelemetry,
     listTelemetry,

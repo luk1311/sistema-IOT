@@ -152,6 +152,11 @@
               </button>
             </div>
 
+            <!-- Gemelo digital 3D (Three.js) -->
+            <div id="hud3d" style="width: 100%; height: 320px; border-radius: var(--radius-md); border: 1px solid var(--border-glass); background: radial-gradient(circle at 50% 30%, #ffffff, #e6e8f0); margin-bottom: 16px; position: relative; overflow: hidden;">
+              <span id="hud3d-hint" style="position:absolute; bottom:8px; left:12px; font-size:11px; color:var(--text-muted); pointer-events:none;">Arrastra el fondo para orbitar · arrastra una articulación para moverla</span>
+            </div>
+
             <div
               style="background: rgba(0,0,0,0.3); border-radius: var(--radius-md); padding: 16px; font-family: monospace; font-size: 13px; border: 1px solid var(--border-glass);">
               <div class="flex-between"
@@ -165,7 +170,7 @@
                   id="dash-shoulder" style="color: var(--accent-ai);">90°</strong></div>
               <div class="flex-between" style="margin-bottom: 8px;"><span>Codo (Servo 3)</span><strong id="dash-elbow"
                   style="color: var(--accent-ai);">90°</strong></div>
-              <div class="flex-between"><span>Muñeca (Servo 4)</span><strong id="dash-wrist"
+              <div class="flex-between"><span>Pinza (Servo 4)</span><strong id="dash-wrist"
                   style="color: var(--accent-ai);">90°</strong></div>
             </div>
           </div>
@@ -188,7 +193,10 @@
       <section id="view-devices" class="view">
         <div style="margin-bottom: 16px; display: flex; gap: 10px; flex-wrap: wrap; align-items: center;">
           <button id="discover-devices-btn" class="btn btn-primary">
-            <span class="material-symbols-outlined">radar</span> Buscar Nodos
+            <span class="material-symbols-outlined">cloud_download</span> Sincronizar Nube
+          </button>
+          <button id="cloud-config-btn" class="btn btn-secondary">
+            <span class="material-symbols-outlined">settings</span> Configurar Nube
           </button>
           <button id="export-config-btn" class="btn btn-secondary">
             <span class="material-symbols-outlined">download</span> Exportar config
@@ -473,9 +481,53 @@
     </div>
   </div>
 
+  <!-- CLOUD CONFIGURATION MODAL -->
+  <div id="cloud-config-modal">
+    <div class="glass-panel modal-content" style="max-width: 500px;">
+      <div style="padding: 24px; border-bottom: 1px solid var(--border-glass); background: rgba(0,0,0,0.3); position: relative;">
+        <button id="close-cloud-config-modal" class="btn" style="position: absolute; top: 16px; right: 16px; padding: 0; width: 36px; height: 36px; min-height: 36px; border-radius: 50%; display: flex; align-items: center; justify-content: center; z-index: 10; background: rgba(255,255,255,0.05); border: 1px solid var(--border-glass);" aria-label="Cerrar modal">
+          <span class="material-symbols-outlined" style="font-size: 20px;">close</span>
+        </button>
+        <h2 class="font-outfit" style="font-size: 20px; color: var(--text-primary); display: flex; align-items: center; gap: 8px;">
+          <span class="material-symbols-outlined" style="color: var(--accent-ai);">cloud</span>
+          Configurar Credenciales de Nube
+        </h2>
+      </div>
+      <div style="padding: 24px; display: flex; flex-direction: column; gap: 16px;">
+        <div>
+          <h3 class="font-outfit" style="font-size: 14px; color: var(--accent-ai); margin-bottom: 12px; text-transform: uppercase; letter-spacing: 0.5px;">Tuya Cloud API</h3>
+          <div class="flex-column" style="gap: 8px;">
+            <label style="font-size: 12px; color: var(--text-secondary);">Tuya Client ID</label>
+            <input type="text" id="cloud-tuya-client-id" class="input-futuristic" placeholder="Ingresa Tuya Client ID">
+            <label style="font-size: 12px; color: var(--text-secondary);">Tuya Client Secret</label>
+            <input type="password" id="cloud-tuya-secret" class="input-futuristic" placeholder="Ingresa Tuya Secret Key">
+          </div>
+        </div>
+        
+        <div style="border-top: 1px solid var(--border-glass); padding-top: 16px;">
+          <h3 class="font-outfit" style="font-size: 14px; color: var(--accent-ai); margin-bottom: 12px; text-transform: uppercase; letter-spacing: 0.5px;">Shelly Cloud API</h3>
+          <div class="flex-column" style="gap: 8px;">
+            <label style="font-size: 12px; color: var(--text-secondary);">Shelly Auth Key</label>
+            <input type="password" id="cloud-shelly-auth-key" class="input-futuristic" placeholder="Ingresa Shelly Auth Key">
+          </div>
+        </div>
+        
+        <div style="display: flex; gap: 12px; margin-top: 12px;">
+          <button id="save-cloud-config-btn" class="btn btn-primary" style="flex: 1;">
+            <span class="material-symbols-outlined">save</span> Guardar y Sincronizar
+          </button>
+          <button id="cancel-cloud-config-btn" class="btn btn-secondary" style="flex: 1;">
+            Cancelar
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+
   <script src="https://cdn.jsdelivr.net/npm/chart.js" defer></script>
   <script src="https://cdn.jsdelivr.net/npm/mqtt/dist/mqtt.min.js" defer></script>
-  <script type="module" src="src/main.js?v=22"></script>
+  <script type="module" src="src/main.js?v=24"></script>
   <script>
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => {

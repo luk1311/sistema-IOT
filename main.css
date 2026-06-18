@@ -131,8 +131,8 @@ h1, h2, h3, h4, .font-outfit {
   gap: 24px;
 }
 
-.col-8 { grid-column: span 8; }
-.col-4 { grid-column: span 4; }
+.col-8 { grid-column: span 8; min-width: 0; }
+.col-4 { grid-column: span 4; min-width: 0; }
 
 .device-grid {
   display: grid;
@@ -380,7 +380,7 @@ select.input-futuristic option {
 /* Metric Cards */
 .metric-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 140px), 1fr));
   gap: 16px;
   margin-bottom: 24px;
 }
@@ -707,7 +707,7 @@ input[type="range"]::-webkit-slider-thumb {
   
   .sidebar { transform: translateX(-100%); transition: transform 0.3s ease; }
   .sidebar.open { transform: translateX(0); }
-  .main-content { margin-left: 0; padding-left: 16px; padding-right: 16px; padding-top: 120px; max-width: 100vw; }
+  .main-content { margin-left: 0; padding-left: 16px; padding-right: 16px; padding-top: 136px; max-width: 100vw; overflow-x: hidden; }
   .dashboard-grid { display: flex; flex-direction: column; }
   .top-status {
     position: fixed;
@@ -1108,3 +1108,30 @@ input[type="range"]::-webkit-slider-thumb {
 
 @keyframes toast-in { from { opacity: 0; transform: translateX(40px); } to { opacity: 1; transform: translateX(0); } }
 @keyframes toast-out { to { opacity: 0; transform: translateX(40px); } }
+
+/* Cloud Config Modal styling */
+#cloud-config-modal {
+  position: fixed; inset: 0; z-index: 100;
+  display: none; align-items: center; justify-content: center;
+  background: rgba(0,0,0,0.8);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+#cloud-config-modal.active {
+  display: flex;
+  animation: fadeIn 0.3s ease;
+}
+
+/* Responsive automation steps */
+@media (max-width: 576px) {
+  .step-row {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+  }
+  .step-row select, .step-row input {
+    width: 100%;
+  }
+}
+
+

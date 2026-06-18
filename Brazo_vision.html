@@ -7,9 +7,10 @@
   <link rel="icon" type="image/x-icon" href="/favicon.ico?v=3">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/tabler-icons.min.css" />
   <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js" crossorigin="anonymous"></script>
+  <!-- Versiones fijadas: el script y los archivos WASM/modelo deben coincidir o la detección no arranca -->
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4.1675469240/hands.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils@0.3.1675466862/camera_utils.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils@0.3.1675466124/drawing_utils.js" crossorigin="anonymous"></script>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -188,10 +189,12 @@
       width: 100%;
       height: 100%;
       object-fit: cover;
-      transform: scaleX(-1);
     }
 
-    #videoElement { opacity: 0.82; }
+    /* El video se muestra en espejo (selfie); selfieMode:true ya entrega los landmarks
+       en ese mismo espacio, así que el canvas NO debe volver a espejarse. */
+    #videoElement { transform: scaleX(-1); opacity: 0.82; }
+    #outputCanvas { transform: none; }
 
     .no-cam-msg {
       position: absolute;
@@ -431,7 +434,7 @@
           <div class="servo-row"><span class="servo-name">Base</span><div class="servo-track"><div class="servo-fill" id="fillBase" style="width:50%"></div><div class="servo-thumb" id="thumbBase" style="left:50%"></div></div><span class="servo-val" id="valBase">90°</span></div>
           <div class="servo-row"><span class="servo-name">Hombro</span><div class="servo-track"><div class="servo-fill" id="fillShoulder" style="width:50%"></div><div class="servo-thumb" id="thumbShoulder" style="left:50%"></div></div><span class="servo-val" id="valShoulder">90°</span></div>
           <div class="servo-row"><span class="servo-name">Codo</span><div class="servo-track"><div class="servo-fill" id="fillElbow" style="width:50%"></div><div class="servo-thumb" id="thumbElbow" style="left:50%"></div></div><span class="servo-val" id="valElbow">90°</span></div>
-          <div class="servo-row"><span class="servo-name">Muñeca</span><div class="servo-track"><div class="servo-fill" id="fillWrist" style="width:50%"></div><div class="servo-thumb" id="thumbWrist" style="left:50%"></div></div><span class="servo-val" id="valWrist">90°</span></div>
+          <div class="servo-row"><span class="servo-name">Pinza</span><div class="servo-track"><div class="servo-fill" id="fillWrist" style="width:50%"></div><div class="servo-thumb" id="thumbWrist" style="left:50%"></div></div><span class="servo-val" id="valWrist">90°</span></div>
         </div>
 
         <div class="panel-block">
@@ -706,7 +709,7 @@
 
       if (!handsInstance) {
         handsInstance = new Hands({
-          locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
+          locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4.1675469240/${file}`
         });
         handsInstance.setOptions({
           maxNumHands: 1,
@@ -721,13 +724,13 @@
       try {
         cameraInstance = new Camera(videoEl, {
           onFrame: async () => {
-            canvas.width = videoEl.videoWidth || 1280;
-            canvas.height = videoEl.videoHeight || 720;
+            canvas.width = videoEl.videoWidth || 960;
+            canvas.height = videoEl.videoHeight || 540;
             await handsInstance.send({ image: videoEl });
             updateFPS();
           },
-          width: 1280,
-          height: 720,
+          width: 960,
+          height: 540,
           facingMode: 'user'
         });
 
@@ -740,7 +743,11 @@
         saveHistory('vision_camera', 'Cámara de visión iniciada');
       } catch (error) {
         document.getElementById('noCamMsg').style.display = 'flex';
-        addLog(`Error cámara: ${error.message}`, 'err');
+        let msg = error.message || 'desconocido';
+        if (error.name === 'NotAllowedError') msg = 'Permiso de cámara denegado';
+        else if (error.name === 'NotFoundError') msg = 'No se encontró ninguna cámara';
+        else if (location.protocol !== 'https:' && location.hostname !== 'localhost') msg = 'La cámara requiere HTTPS (o localhost)';
+        addLog(`Error cámara: ${msg}`, 'err');
       }
     }
 
@@ -813,39 +820,37 @@
       ctx.stroke();
     }
 
+    // Brazo de 4 servos: 1=base, 2=hombro, 3=codo, 4=PINZA (gripper).
     function processPositionMode(lm, isRightHand) {
       const wrist = lm[0];
       const indexTip = lm[8];
       const thumbTip = lm[4];
-      const indexMcp = lm[5];
-      const pinkyMcp = lm[17];
       const rawBase = clamp((1 - wrist.x) * 180, 0, 180);
       const rawShoulder = clamp((1 - wrist.y) * 160 + 10, 10, 170);
       const rawElbow = clamp(90 + (wrist.y - indexTip.y) * 280, 0, 180);
-      const tilt = isRightHand ? pinkyMcp.y - indexMcp.y : indexMcp.y - pinkyMcp.y;
-      const rawWrist = clamp(90 + tilt * 300, 0, 180);
       const dist = Math.hypot(thumbTip.x - indexTip.x, thumbTip.y - indexTip.y);
       const grip = clamp(dist * 600, 0, 100);
+      const gripperAngle = Math.round(grip / 100 * 180); // servo 4 = pinza
 
       smoothed.base = ema(smoothed.base, rawBase);
       smoothed.shoulder = ema(smoothed.shoulder, rawShoulder);
       smoothed.elbow = ema(smoothed.elbow, rawElbow);
-      smoothed.wrist = ema(smoothed.wrist, rawWrist);
 
-      updateServosUI(smoothed.base, smoothed.shoulder, smoothed.elbow, smoothed.wrist, grip);
+      updateServosUI(smoothed.base, smoothed.shoulder, smoothed.elbow, gripperAngle, grip);
       updateLandmarks(wrist, indexTip, thumbTip, dist, grip);
 
-      const published = publishServoPacket(smoothed.base, smoothed.shoulder, smoothed.elbow, smoothed.wrist, 100);
-      if (published) addLog(`B:${smoothed.base} H:${smoothed.shoulder} C:${smoothed.elbow} M:${smoothed.wrist}`, 'ok');
+      const published = publishServoPacket(smoothed.base, smoothed.shoulder, smoothed.elbow, gripperAngle, 100);
+      if (published) addLog(`B:${smoothed.base} H:${smoothed.shoulder} C:${smoothed.elbow} Pinza:${Math.round(grip)}%`, 'ok');
     }
 
+    // wrist en cada comando es histórico; el servo 4 se controla con grip (pinza).
     const GESTURE_CMDS = {
-      ABIERTO: { base: 90, shoulder: 135, elbow: 90, wrist: 90, grip: 100 },
-      PUÑO: { base: 90, shoulder: 45, elbow: 45, wrist: 90, grip: 0 },
-      APUNTAR: { base: 90, shoulder: 90, elbow: 160, wrist: 90, grip: 0 },
-      PAZ: { base: 90, shoulder: 90, elbow: 90, wrist: 135, grip: 50 },
-      MEÑIQUE: { base: 45, shoulder: 90, elbow: 90, wrist: 90, grip: 80 },
-      'PULGAR ARRIBA': { base: 90, shoulder: 170, elbow: 90, wrist: 90, grip: 50 }
+      ABIERTO: { base: 90, shoulder: 135, elbow: 90, grip: 100 },
+      PUÑO: { base: 90, shoulder: 45, elbow: 45, grip: 0 },
+      APUNTAR: { base: 90, shoulder: 90, elbow: 160, grip: 0 },
+      PAZ: { base: 90, shoulder: 90, elbow: 90, grip: 50 },
+      MEÑIQUE: { base: 45, shoulder: 90, elbow: 90, grip: 80 },
+      'PULGAR ARRIBA': { base: 90, shoulder: 170, elbow: 90, grip: 100 }
     };
 
     function processGestureMode(lm, isRightHand) {
@@ -854,8 +859,9 @@
       showGesture(gesture);
       const cmd = GESTURE_CMDS[gesture];
       if (!cmd) return;
-      updateServosUI(cmd.base, cmd.shoulder, cmd.elbow, cmd.wrist, cmd.grip);
-      if (publishServoPacket(cmd.base, cmd.shoulder, cmd.elbow, cmd.wrist, 300)) {
+      const gripperAngle = Math.round(cmd.grip / 100 * 180);
+      updateServosUI(cmd.base, cmd.shoulder, cmd.elbow, gripperAngle, cmd.grip);
+      if (publishServoPacket(cmd.base, cmd.shoulder, cmd.elbow, gripperAngle, 300)) {
         addLog(`Gesto: ${gesture}`, 'ok');
       }
     }
@@ -877,7 +883,8 @@
       return null;
     }
 
-    function publishServoPacket(base, shoulder, elbow, wrist, throttleMs) {
+    // Publica el paquete de los 4 servos. servo 4 = pinza (gripper).
+    function publishServoPacket(base, shoulder, elbow, gripper, throttleMs) {
       if (!mqttClient?.connected) return false;
       const now = Date.now();
       if (now - lastPublish < throttleMs) return false;
@@ -885,7 +892,7 @@
       mqttClient.publish('brazo/servo/1', String(base));
       mqttClient.publish('brazo/servo/2', String(shoulder));
       mqttClient.publish('brazo/servo/3', String(elbow));
-      mqttClient.publish('brazo/servo/4', String(wrist));
+      mqttClient.publish('brazo/servo/4', String(gripper));
       return true;
     }
 

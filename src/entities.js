@@ -66,7 +66,8 @@ function rangeGaugeHtml(device, entity) {
   const min = Number(entity.min ?? 0);
   const max = Number(entity.max ?? 180);
   const step = Number(entity.step ?? 1);
-  const def = Number(entity.default ?? min);
+  const currentVal = device.entityStates?.[entity.id];
+  const def = Number(currentVal ?? entity.default ?? min);
   const mid = Math.round((min + max) / 2);
   const unit = entity.unit ? escapeHtml(entity.unit) : '°';
   const icon = entity.ui?.icon ? escapeHtml(entity.ui.icon) : 'ti-settings';
@@ -103,6 +104,7 @@ function widgetHtml(device, entity, opts = {}) {
   const data = `data-device="${escapeHtml(device.deviceId)}" data-entity="${escapeHtml(entity.id)}" data-cap="${entity.capability}"`;
   const icon = entity.ui?.icon ? `<i class="ti ${escapeHtml(entity.ui.icon)}"></i>` : '';
   const label = `<span class="entity-label">${icon}${escapeHtml(entity.name)}</span>`;
+  const currentVal = device.entityStates?.[entity.id];
 
   switch (entity.capability) {
     case 'range': {
@@ -110,7 +112,7 @@ function widgetHtml(device, entity, opts = {}) {
       const min = Number(entity.min ?? 0);
       const max = Number(entity.max ?? 100);
       const step = Number(entity.step ?? 1);
-      const def = Number(entity.default ?? min);
+      const def = Number(currentVal ?? entity.default ?? min);
       const unit = entity.unit ? escapeHtml(entity.unit) : '';
       return `
         <div class="entity-widget" id="${id}" ${data}>
@@ -118,13 +120,18 @@ function widgetHtml(device, entity, opts = {}) {
           <input type="range" class="entity-range" min="${min}" max="${max}" step="${step}" value="${def}" data-unit="${unit}">
         </div>`;
     }
-    case 'switch':
+    case 'switch': {
+      const isOn = isOnPayload(entity, currentVal !== undefined ? currentVal : (entity.default ?? 'off'));
+      const stateStr = isOn ? 'on' : 'off';
+      const labelStr = isOn ? 'ON' : 'OFF';
+      const activeClass = isOn ? 'active' : '';
       return `
-        <div class="entity-widget" id="${id}" ${data} data-state="off">
+        <div class="entity-widget" id="${id}" ${data} data-state="${stateStr}">
           <div class="entity-head">${label}
-            <button type="button" class="entity-toggle" aria-pressed="false">OFF</button>
+            <button type="button" class="entity-toggle ${activeClass}" aria-pressed="${isOn}">${labelStr}</button>
           </div>
         </div>`;
+    }
     case 'button':
       return `
         <div class="entity-widget" id="${id}" ${data}>
@@ -132,18 +139,22 @@ function widgetHtml(device, entity, opts = {}) {
             <button type="button" class="entity-press secondary-btn">Activar</button>
           </div>
         </div>`;
-    case 'sensor':
+    case 'sensor': {
+      const valStr = formatSensor(entity, currentVal);
       return `
         <div class="entity-widget" id="${id}" ${data}>
-          <div class="entity-head">${label}<span class="entity-val entity-sensor">--</span></div>
+          <div class="entity-head">${label}<span class="entity-val entity-sensor">${escapeHtml(valStr)}</span></div>
           <canvas class="entity-chart" height="70" aria-label="Histórico ${escapeHtml(entity.name)}"></canvas>
         </div>`;
+    }
     case 'text':
-    default:
+    default: {
+      const valStr = currentVal !== undefined ? String(currentVal) : '--';
       return `
         <div class="entity-widget" id="${id}" ${data}>
-          <div class="entity-head">${label}<span class="entity-val entity-text">--</span></div>
+          <div class="entity-head">${label}<span class="entity-val entity-text">${escapeHtml(valStr)}</span></div>
         </div>`;
+    }
   }
 }
 
@@ -155,6 +166,14 @@ function sortedEntities(device) {
 }
 
 export function deviceEntitiesHtml(device) {
+  if (!device.entityStates) {
+    device.entityStates = {};
+  }
+  if (device.lastTelemetry && typeof device.lastTelemetry === 'object' && !Array.isArray(device.lastTelemetry)) {
+    for (const [k, v] of Object.entries(device.lastTelemetry)) {
+      device.entityStates[k] = v;
+    }
+  }
   const entities = sortedEntities(device);
   if (!entities.length) return '';
   return `<div class="entity-grid">${entities.map((e) => widgetHtml(device, e)).join('')}</div>`;
@@ -167,6 +186,16 @@ export function renderBrazoPanel() {
   const brazo = (state.devices || []).find((d) => d.deviceId === 'brazo');
   const ranges = sortedEntities(brazo || {}).filter((e) => e.capability === 'range');
   if (!ranges.length) return; // aún no cargó el brazo
+  if (brazo) {
+    if (!brazo.entityStates) {
+      brazo.entityStates = {};
+    }
+    if (brazo.lastTelemetry && typeof brazo.lastTelemetry === 'object' && !Array.isArray(brazo.lastTelemetry)) {
+      for (const [k, v] of Object.entries(brazo.lastTelemetry)) {
+        brazo.entityStates[k] = v;
+      }
+    }
+  }
   if (grid.childElementCount === ranges.length) return; // ya renderizado: evita churn mid-drag
   grid.innerHTML = ranges.map((e) => widgetHtml(brazo, e, { gauge: true })).join('');
 }
@@ -181,6 +210,12 @@ export function applyEntityState(topic, payload) {
   if (!el) return false;
   const value = readPayloadValue(entity, payload);
   if (value === undefined) return false;
+
+  const device = (state.devices || []).find((d) => d.deviceId === deviceId);
+  if (device) {
+    if (!device.entityStates) device.entityStates = {};
+    device.entityStates[entity.id] = value;
+  }
 
   switch (entity.capability) {
     case 'range': {
@@ -353,10 +388,34 @@ export function initEntityControls() {
   });
 }
 
+async function sendEntityControl(deviceId, entity, value) {
+  const device = (state.devices || []).find((d) => d.deviceId === deviceId);
+  if (device && device.type !== 'tuya' && device.type !== 'shelly') {
+    if (entity.mqtt && entity.mqtt.set) {
+      publish(entity.mqtt.set, value);
+    }
+    return;
+  }
+
+  try {
+    const creds = {
+      tuyaClientId: localStorage.getItem('tadashy_tuya_client_id') || '',
+      tuyaSecret: localStorage.getItem('tadashy_tuya_secret') || '',
+      shellyAuthKey: localStorage.getItem('tadashy_shelly_auth_key') || ''
+    };
+    await api(`/devices/${deviceId}/entities/${entity.id}/control`, {
+      method: 'POST',
+      body: JSON.stringify({ value, ...creds })
+    });
+  } catch (err) {
+    console.error('[Entities] Error al controlar entidad por API:', err.message);
+  }
+}
+
 function onRangeInput(widget, slider, force) {
   if (!widget) return;
   const { device, entity } = resolveWidget(widget);
-  if (!entity?.mqtt?.set) return;
+  if (!entity) return;
   const key = `${device}:${entity.id}`;
   const now = Date.now();
   if (!force && now - (lastSent.get(key) || 0) <= INTERVALO) {
@@ -364,37 +423,37 @@ function onRangeInput(widget, slider, force) {
     return;
   }
   lastSent.set(key, now);
-  publish(entity.mqtt.set, slider.value);
+  sendEntityControl(device, entity, slider.value);
   updateRangeVisual(widget, entity, Number(slider.value));
 }
 
 function onPresetClick(preset) {
   const widget = preset.closest('.entity-widget');
   if (!widget) return;
-  const { entity } = resolveWidget(widget);
-  if (!entity?.mqtt?.set) return;
+  const { device, entity } = resolveWidget(widget);
+  if (!entity) return;
   const value = preset.dataset.angle;
   const slider = widget.querySelector('.entity-range');
   if (slider) slider.value = value;
-  publish(entity.mqtt.set, value);
+  sendEntityControl(device, entity, value);
   updateRangeVisual(widget, entity, Number(value));
 }
 
 function onToggleClick(widget) {
   if (!widget) return;
-  const { entity } = resolveWidget(widget);
-  if (!entity?.mqtt?.set) return;
+  const { device, entity } = resolveWidget(widget);
+  if (!entity) return;
   const goingOn = widget.dataset.state !== 'on';
   const payload = goingOn ? (entity.onPayload ?? 'on') : (entity.offPayload ?? 'off');
-  publish(entity.mqtt.set, payload);
+  sendEntityControl(device, entity, payload);
   if (entity.optimistic !== false) setToggleVisual(widget, goingOn);
 }
 
 function onPressClick(widget) {
   if (!widget) return;
-  const { entity } = resolveWidget(widget);
-  if (!entity?.mqtt?.set) return;
-  publish(entity.mqtt.set, entity.pressPayload ?? 'press');
+  const { device, entity } = resolveWidget(widget);
+  if (!entity) return;
+  sendEntityControl(device, entity, entity.pressPayload ?? 'press');
 }
 
 function resolveWidget(widget) {
