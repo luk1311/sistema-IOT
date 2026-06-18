@@ -339,7 +339,7 @@ export function downloadMicroCode() {
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = \`tadashy_\${id}.ino\`;
+  a.download = `tadashy_${id}.ino`;
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
