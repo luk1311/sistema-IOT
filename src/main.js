@@ -128,7 +128,7 @@ function bindEvents() {
     if (delUser) deleteUser(delUser.dataset.deleteUser);
 
     const deviceCard = event.target.closest('.device-card');
-    if (deviceCard) {
+    if (deviceCard && !event.target.closest('.entity-widget')) {
       const deviceId = deviceCard.dataset.deviceId || '';
       if (deviceId.toLowerCase().includes('brazo')) {
         $('robot-modal').style.display = 'flex';
