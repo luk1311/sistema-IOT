@@ -1167,13 +1167,13 @@ input[type="range"]::-webkit-slider-thumb {
     padding: 8px 12px;
     min-height: 44px;
   }
-  .devices-action-bar #device-filter-bar {
+  #device-filter-bar {
     grid-column: span 2;
-    width: 100%;
-    margin-left: 0;
+    width: 100% !important;
+    margin-left: 0 !important;
   }
-  .devices-action-bar #device-filter-bar select {
-    width: 100%;
+  #device-area-select {
+    width: 100% !important;
     text-align-last: center;
   }
 }
