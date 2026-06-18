@@ -61,7 +61,16 @@ const entitySchema = {
         properties: {
           unit: { type: 'string', maxLength: 12 },
           dataType: { enum: ['number', 'string', 'bool'] },
-          precision: { type: 'integer', minimum: 0, maximum: 6 }
+          precision: { type: 'integer', minimum: 0, maximum: 6 },
+          alert: {
+            type: 'object',
+            additionalProperties: false,
+            properties: {
+              min: { type: 'number' },
+              max: { type: 'number' },
+              message: { type: 'string', maxLength: 160 }
+            }
+          }
         }
       }
     },

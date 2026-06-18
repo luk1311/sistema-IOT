@@ -1,25 +1,60 @@
+const fs = require('fs');
+const path = require('path');
+
+// Cargar variables de entorno desde .env de forma nativa local
+try {
+  const envPath = path.join(__dirname, '.env');
+  if (fs.existsSync(envPath)) {
+    const envLines = fs.readFileSync(envPath, 'utf8').split(/\r?\n/);
+    for (const line of envLines) {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith('#')) continue;
+      const index = trimmed.indexOf('=');
+      if (index > 0) {
+        const key = trimmed.slice(0, index).trim();
+        let val = trimmed.slice(index + 1).trim();
+        if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
+          val = val.slice(1, -1);
+        }
+        if (!process.env[key]) {
+          process.env[key] = val;
+        }
+      }
+    }
+  }
+} catch (err) {
+  console.warn('[ENV] No se pudo cargar el archivo .env local:', err.message);
+}
+
 const http = require('http');
 const express = require('express');
 const cors = require('cors');
 const jwt = require('jsonwebtoken');
 const app = express();
-const fs = require('fs');
-const path = require('path');
 const crypto = require('crypto');
 const { initializeApp, cert } = require('firebase-admin/app');
 const { getFirestore } = require('firebase-admin/firestore');
 let serviceAccount = null;
 let firestore = null;
 try {
-  serviceAccount = require('./firebase-key.json');
+  // En producción (Render free tier, filesystem efímero) las credenciales se pasan
+  // por variable de entorno; el archivo es el respaldo para desarrollo local.
+  if (process.env.FIREBASE_SERVICE_ACCOUNT) {
+    serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
+  } else {
+    serviceAccount = require('./firebase-key.json');
+  }
   initializeApp({ credential: cert(serviceAccount) });
   firestore = getFirestore();
   console.log('[Firebase] Inicializado con éxito.');
 } catch (error) {
-  console.warn('[Firebase] No se encontró firebase-key.json o falló la inicialización. Firebase desactivado.');
+  console.warn('[Firebase] Sin credenciales (FIREBASE_SERVICE_ACCOUNT o firebase-key.json). Firebase desactivado; IoT store en memoria (efímero).');
 }
 const mqtt = require('mqtt');
 const { createIotStore, normalizeDeviceId, parseJson } = require('./iot_store');
+const { createAlertEngine } = require('./src/alert-engine');
+const { createRuleEngine } = require('./src/rule-engine');
+const { createPushService } = require('./src/push-service');
 const { createAiService } = require('./ai_service');
 const {
   AutomationGenerator,
@@ -52,6 +87,11 @@ let iotStore = null;
 let iotMqttClient = null;
 let aiService = null;
 let aiModules = null;
+let alertEngine = null;
+let ruleEngine = null;
+let pushService = null;
+// Emisor de Web Push; se reasigna al servicio real en el arranque.
+let sendPush = () => {};
 const eventClients = new Set();
 const eventBus = new EventBus();
 const sessionManager = new SessionManager();
@@ -169,23 +209,8 @@ const MIME = {
   '.svg': 'image/svg+xml'
 };
 
-function emitIotEvent(type, payload) {
-  const event = `event: ${type}\ndata: ${JSON.stringify({ type, payload, at: new Date().toISOString() })}\n\n`;
-  for (const res of eventClients) res.write(event);
-  eventBus.emit(type, payload);
-}
-
-function validateDevicePatch(body = {}) {
-  const patch = {};
-  if (typeof body.name === 'string') patch.name = body.name.trim().slice(0, 80);
-  if (typeof body.type === 'string') patch.type = body.type.trim().slice(0, 40);
-  if (typeof body.firmware === 'string') patch.firmware = body.firmware.trim().slice(0, 80);
-  if (typeof body.ip === 'string') patch.ip = body.ip.trim().slice(0, 64);
-  if (Array.isArray(body.capabilities)) patch.capabilities = body.capabilities.slice(0, 30).map(String);
-  if (body.metadata && typeof body.metadata === 'object' && !Array.isArray(body.metadata)) patch.metadata = body.metadata;
-  if (body.config && typeof body.config === 'object' && !Array.isArray(body.config)) patch.config = body.config;
-  return patch;
-}
+// emitIotEvent y validateDevicePatch se definen una sola vez más abajo
+// (cerca de handleIotMqttMessage), para evitar definiciones duplicadas.
 
 function validDeviceId(value) {
   return Boolean(normalizeDeviceId(value));
@@ -496,6 +521,7 @@ function validateDevicePatch(body = {}) {
   const patch = {};
   if (typeof body.name === 'string') patch.name = body.name.trim().slice(0, 80);
   if (typeof body.type === 'string') patch.type = body.type.trim().slice(0, 40);
+  if (typeof body.area === 'string') patch.area = body.area.trim().slice(0, 60);
   if (typeof body.firmware === 'string') patch.firmware = body.firmware.trim().slice(0, 80);
   if (typeof body.ip === 'string') patch.ip = body.ip.trim().slice(0, 64);
   if (Array.isArray(body.capabilities)) patch.capabilities = body.capabilities.slice(0, 30).map(String);
@@ -508,6 +534,37 @@ function emitIotEvent(type, payload) {
   const event = `event: ${type}\ndata: ${JSON.stringify({ type, payload, at: new Date().toISOString() })}\n\n`;
   for (const res of eventClients) res.write(event);
   eventBus.emit(type, payload);
+}
+
+// Ejecuta una acción de regla publicando por el bridge MQTT del backend.
+function executeRuleAction(action) {
+  if (!action || !action.deviceId || !iotStore) return;
+  if (action.type === 'entity_set') {
+    const device = iotStore.getDevice(action.deviceId);
+    const entity = device && (device.entities || []).find((e) => e.id === action.entityId);
+    const setTopic = entity && entity.mqtt && entity.mqtt.set;
+    if (setTopic && iotMqttClient && iotMqttClient.connected) {
+      iotMqttClient.publish(setTopic, String(action.value));
+    }
+    iotStore.addCommand(action.deviceId, `set:${action.entityId}`, { value: action.value });
+    emitIotEvent('command', { deviceId: action.deviceId, entityId: action.entityId, value: action.value });
+  } else if (action.type === 'command') {
+    iotStore.addCommand(action.deviceId, action.command, {});
+    if (iotMqttClient && iotMqttClient.connected) {
+      iotMqttClient.publish(`devices/${action.deviceId}/commands`, JSON.stringify({ command: action.command, payload: {}, at: new Date().toISOString() }));
+    }
+    emitIotEvent('command', { deviceId: action.deviceId, command: action.command });
+  }
+}
+
+// Al dispararse una regla: registrar alerta informativa + emitir por SSE (toast).
+function onRuleFired(rule) {
+  if (!iotStore) return;
+  const alert = iotStore.addAlert({
+    deviceId: rule.trigger.deviceId, type: 'rule_fired', severity: 'info',
+    message: `Regla "${rule.name}" ejecutada`
+  });
+  emitIotEvent('alert', alert);
 }
 
 function handleIotMqttMessage(topic, payloadBuffer) {
@@ -543,6 +600,7 @@ function handleIotMqttMessage(topic, payloadBuffer) {
     const db = readDb();
     if (cleanStatus === 'offline') {
       addHistory(db, null, 'device_offline', `Dispositivo ${deviceId} desconectado (LWT)`);
+      if (alertEngine) alertEngine.checkOffline([deviceId]);
     } else if (currentDevice) {
       addHistory(db, null, 'device_online', `Dispositivo ${deviceId} ha vuelto a conectarse`);
     }
@@ -562,7 +620,10 @@ function handleIotMqttMessage(topic, payloadBuffer) {
   if (channel === 'telemetry') {
     const telemetry = iotStore.addTelemetry(deviceId, topic, payload);
     emitIotEvent('telemetry', telemetry);
-    emitIotEvent('device', iotStore.getDevice(deviceId));
+    const updated = iotStore.getDevice(deviceId);
+    emitIotEvent('device', updated);
+    if (alertEngine) alertEngine.checkTelemetry(updated, topic, payload);
+    if (ruleEngine) ruleEngine.evaluate(updated, topic, payload);
     return;
   }
 
@@ -628,6 +689,9 @@ const deps = {
   getIotStore: () => iotStore,
   getIotMqttClient: () => iotMqttClient,
   getAiService: () => aiService,
+  getPushService: () => pushService,
+  emitIotEvent,
+  recordCommand: (deviceId, command) => { if (alertEngine) alertEngine.recordCommand(deviceId, command); },
   sessionManager
 };
 
@@ -637,6 +701,9 @@ const historyRoutes = require('./src/routes/history.routes')(deps);
 const automationsRoutes = require('./src/routes/automations.routes')(deps);
 const devicesRoutes = require('./src/routes/devices.routes')(deps);
 const aiRoutes = require('./src/routes/ai.routes')(deps);
+const pushRoutes = require('./src/routes/push.routes')(deps);
+const rulesRoutes = require('./src/routes/rules.routes')(deps);
+const backupRoutes = require('./src/routes/backup.routes')(deps);
 
 app.use('/api/auth', authRoutes);
 app.use('/api/users', usersRoutes);
@@ -644,6 +711,9 @@ app.use('/api/history', historyRoutes);
 app.use('/api/automations', automationsRoutes);
 app.use('/api/devices', devicesRoutes);
 app.use('/api/ai', aiRoutes);
+app.use('/api/push', pushRoutes);
+app.use('/api/rules', rulesRoutes);
+app.use('/api/backup', backupRoutes);
 app.use('/api/voice', aiRoutes); // /api/voice/config is inside ai.routes, we will map it below
 
 app.get('/api/permissions', (req, res) => res.status(200).json({ permissions: PERMISSIONS }));
@@ -729,7 +799,23 @@ const server = http.createServer(app);
 
 (async function start() {
   await loadDbFromFirebase();
-  iotStore = await createIotStore({ dataDir: DATA_DIR });
+  iotStore = await createIotStore({ firestore });
+  pushService = createPushService({
+    dataDir: DATA_DIR,
+    getSubscriptions: () => iotStore.listPushSubscriptions(),
+    removeSubscription: (endpoint) => iotStore.removePushSubscription(endpoint)
+  });
+  sendPush = (alert) => {
+    if (!pushService || !pushService.enabled) return;
+    pushService.sendToAll({
+      title: `TADASHY · ${alert.deviceId || 'Alerta'}`,
+      body: alert.message,
+      type: alert.type,
+      deviceId: alert.deviceId
+    });
+  };
+  alertEngine = createAlertEngine({ iotStore, emit: emitIotEvent, pushSender: (alert) => sendPush(alert) });
+  ruleEngine = createRuleEngine({ iotStore, executeAction: executeRuleAction, onFire: onRuleFired });
 
   aiModules = {};
   aiModules.memoryManager = new MemoryManager(iotStore);
@@ -968,6 +1054,7 @@ const server = http.createServer(app);
         addHistory(db, null, 'device_offline', `Dispositivo ${deviceId} desconectado por inactividad (Watchdog)`);
       });
       writeDb(db);
+      if (alertEngine) alertEngine.checkOffline(offlineIds);
     }
   }, Math.max(3000, Math.floor(HEARTBEAT_TIMEOUT_MS / 2)));
 
@@ -989,7 +1076,7 @@ const server = http.createServer(app);
     console.log(`TADASHY listo en http://localhost:${actualPort}`);
     console.log('Usuario inicial: admin / admin123');
     console.log('Rol inicial: Super Admin');
-    console.log(`SQLite IoT: ${iotStore.filePath}`);
+    console.log(`IoT store: ${iotStore.filePath}`);
   });
 })();
 

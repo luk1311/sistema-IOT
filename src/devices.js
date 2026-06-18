@@ -3,6 +3,7 @@ import { addLog } from './logger.js';
 import { api } from './api.js';
 import { hasPermission } from './auth.js';
 import { deviceEntitiesHtml, reindexEntities, renderBrazoPanel, hydrateEntityCharts } from './entities.js';
+import { showAlert, subscribeToPush } from './notifications.js';
 
 export async function loadDevices() {
   if (!hasPermission('view_dashboard')) return;
@@ -15,21 +16,49 @@ export async function loadDevices() {
   }
 }
 
+let areaFilter = '';
+
+function renderAreaFilter() {
+  const bar = $('device-filter-bar');
+  if (!bar) return;
+  const areas = [...new Set((state.devices || []).map((d) => d.area).filter(Boolean))].sort();
+  bar.innerHTML = `<select id="device-area-select" class="input-futuristic" style="margin:0; padding:6px 10px;">
+    <option value="">Todas las áreas</option>
+    ${areas.map((a) => `<option value="${escapeHtml(a)}" ${a === areaFilter ? 'selected' : ''}>${escapeHtml(a)}</option>`).join('')}
+  </select>`;
+  $('device-area-select').addEventListener('change', (e) => { areaFilter = e.target.value; renderDevices(); });
+}
+
+export async function editArea(deviceId) {
+  const device = (state.devices || []).find((d) => d.deviceId === deviceId);
+  const area = prompt('Área / zona del dispositivo:', device?.area || '');
+  if (area === null) return;
+  try {
+    await api(`/devices/${deviceId}`, { method: 'PATCH', body: JSON.stringify({ area: area.trim() }) });
+    await loadDevices();
+  } catch (e) {
+    addLog('No se pudo asignar el área: ' + e.message, 'err');
+  }
+}
+
 export function renderDevices() {
   const grid = $('device-grid');
   if (!grid) return;
   const online = state.devices.filter((device) => device.status === 'online').length;
-  $('device-total').textContent = state.devices.length;
-  $('device-online-total').textContent = online;
+  if ($('device-total')) $('device-total').textContent = state.devices.length;
+  if ($('device-online-total')) $('device-online-total').textContent = online;
+
+  renderAreaFilter();
 
   if (!state.devices.length) {
     grid.innerHTML = '<div class="empty-state">Sin dispositivos descubiertos. Esperando heartbeat en devices/{deviceId}/status o telemetria en devices/{deviceId}/telemetry.</div>';
     return;
   }
 
-  grid.innerHTML = state.devices.map((device) => {
+  const visible = state.devices.filter((d) => !areaFilter || (d.area || '') === areaFilter);
+
+  grid.innerHTML = visible.map((device) => {
     const lastSeen = device.lastSeen ? new Date(device.lastSeen).toLocaleTimeString('es-CO') : '--';
-    const firmware = device.firmware || device.metadata?.firmware || '--';
     const telemetry = device.lastTelemetry
       ? JSON.stringify(device.lastTelemetry).slice(0, 160)
       : 'Sin telemetria reciente';
@@ -37,6 +66,7 @@ export function renderDevices() {
     const statusBadge = device.status === 'online'
       ? '<span class="badge badge-dev-on"><i class="ti ti-activity"></i>Online</span>'
       : '<span class="badge badge-dev-off"><i class="ti ti-power"></i>Offline</span>';
+    const area = device.area || 'Sin área';
 
     return `
       <div class="device-card ${statusClass}" data-device-id="${escapeHtml(device.deviceId)}">
@@ -49,12 +79,14 @@ export function renderDevices() {
         </div>
         <div class="device-meta">
           <div><span>Ultimo heartbeat</span><strong>${escapeHtml(lastSeen)}</strong></div>
-          <div><span>Firmware</span><strong>${escapeHtml(firmware)}</strong></div>
+          <div><span>Área</span><strong><button class="ghost-btn" data-edit-area="${escapeHtml(device.deviceId)}" style="padding:2px 6px; font-size:12px;">${escapeHtml(area)} ✎</button></strong></div>
         </div>
         ${deviceEntitiesHtml(device)}
         <div class="device-telemetry">${escapeHtml(telemetry)}</div>
       </div>`;
   }).join('');
+
+  grid.querySelectorAll('[data-edit-area]').forEach((b) => b.addEventListener('click', (e) => { e.stopPropagation(); editArea(b.dataset.editArea); }));
 
   // Reconstruir el índice tópico→entidad para resolver MQTT entrante.
   reindexEntities();
@@ -78,11 +110,16 @@ export function upsertDevice(device) {
 }
 
 export function connectIotEvents() {
-  if (!state.auth?.token || state.iotEvents) return;
+  if (!state.auth?.token) return;
+  subscribeToPush(); // suscripción a Web Push tras el login (idempotente)
+  if (state.iotEvents) return;
   state.iotEvents = new EventSource(`${API}/iot/events?token=${encodeURIComponent(state.auth.token)}`);
   state.iotEvents.addEventListener('device', (event) => {
     const data = JSON.parse(event.data);
     upsertDevice(data.payload);
+  });
+  state.iotEvents.addEventListener('alert', (event) => {
+    try { showAlert(JSON.parse(event.data).payload); } catch (e) { /* noop */ }
   });
   state.iotEvents.addEventListener('telemetry', (event) => {
     const data = JSON.parse(event.data);

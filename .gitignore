@@ -4,6 +4,7 @@ data/iot.sqlite
 data/*.bak
 firebase-key.json
 migrate_to_firebase.js
+data/vapid.json
 
 # Security
 .env

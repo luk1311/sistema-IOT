@@ -1,5 +1,6 @@
 import { $, state, viewCopy } from './state.js';
 import { loadAiChat } from './ai.js';
+import { loadRules } from './rules.js';
 
 export function switchView(view) {
   if (!state.auth) return;
@@ -30,4 +31,5 @@ export function switchView(view) {
   $('view-subtitle').textContent = viewCopy[cleanView] ? viewCopy[cleanView][1] : '';
   
   if (cleanView === 'ai') loadAiChat();
+  if (cleanView === 'automations') loadRules();
 }

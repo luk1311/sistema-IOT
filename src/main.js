@@ -12,6 +12,8 @@ import { sendAiMessage, executeBotAction } from './ai.js';
 import { toggleVoice, toggleHandsFree, stopSpeaking, initVoiceAssistant, updateVoiceStatus } from './voice.js';
 import { renderShell } from './auth.js';
 import { initEntityControls } from './entities.js';
+import { initNotifications } from './notifications.js';
+import { exportConfig, importConfig } from './backup.js';
 
 // Handlers requeridos por HTML generado dinámicamente (onclick/onchange inline)
 window.executeBotAction = executeBotAction;
@@ -39,6 +41,11 @@ function bindEvents() {
   $('user-form').addEventListener('submit', createUser);
   $('clear-history').addEventListener('click', clearHistory);
   $('discover-devices-btn').addEventListener('click', discoverDevices);
+  $('export-config-btn')?.addEventListener('click', exportConfig);
+  $('import-config-input')?.addEventListener('change', (event) => {
+    importConfig(event.target.files[0]);
+    event.target.value = '';
+  });
   $('voice-toggle-btn')?.addEventListener('click', toggleVoice);
   $('handsfree-toggle-btn')?.addEventListener('click', toggleHandsFree);
   $('stop-speaking-btn')?.addEventListener('click', stopSpeaking);
@@ -147,6 +154,7 @@ function bindEvents() {
 // --- Arranque ---
 bindEvents();
 initEntityControls();
+initNotifications();
 hydrateMqttForm();
 updateVoiceStatus(state.handsFreeMode ? 'Manos libres activo' : 'Voz lista · Hey TADASHY');
 renderShell();

@@ -13,18 +13,37 @@ export async function loadHistory() {
 
   const data = await api('/history?t=' + Date.now());
   state.historyItems = data.history || [];
-  if (list) {
-    if (state.historyItems.length === 0) {
-      list.innerHTML = '<div style="padding: 24px; text-align: center; color: var(--text-muted);">No hay registros.</div>';
-    } else {
-      list.innerHTML = state.historyItems.map((item) => `
-        <div class="history-row">
-          <span class="row-meta">${new Date(item.createdAt).toLocaleString('es-CO')}</span>
-          <span class="topic">${escapeHtml(item.type)}</span>
-          <span>${escapeHtml(item.detail)}</span>
-        </div>`).join('');
-    }
+  renderHistoryFilter();
+  renderHistoryList();
+}
+
+let historyFilter = '';
+
+function renderHistoryFilter() {
+  const bar = $('history-filter-bar');
+  if (!bar) return;
+  const types = [...new Set((state.historyItems || []).map((h) => h.type).filter(Boolean))].sort();
+  bar.innerHTML = `<select id="history-type-select" class="input-futuristic" style="margin:0; padding:6px 10px; display:inline-block; width:auto;">
+    <option value="">Todos los tipos</option>
+    ${types.map((t) => `<option value="${escapeHtml(t)}" ${t === historyFilter ? 'selected' : ''}>${escapeHtml(t)}</option>`).join('')}
+  </select>`;
+  $('history-type-select').addEventListener('change', (e) => { historyFilter = e.target.value; renderHistoryList(); });
+}
+
+function renderHistoryList() {
+  const list = $('history-list');
+  if (!list) return;
+  const items = (state.historyItems || []).filter((h) => !historyFilter || h.type === historyFilter);
+  if (items.length === 0) {
+    list.innerHTML = '<div style="padding: 24px; text-align: center; color: var(--text-muted);">No hay registros.</div>';
+    return;
   }
+  list.innerHTML = items.map((item) => `
+    <div class="history-row">
+      <span class="row-meta">${new Date(item.createdAt).toLocaleString('es-CO')}</span>
+      <span class="topic">${escapeHtml(item.type)}</span>
+      <span>${escapeHtml(item.detail)}</span>
+    </div>`).join('');
 }
 
 export async function clearHistory() {

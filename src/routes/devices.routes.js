@@ -1,5 +1,5 @@
 module.exports = function(deps) {
-  const { readDb, writeDb, requireAuth, requireEventAuth, addHistory, getIotStore, getIotMqttClient, emitIotEvent, validDeviceId, validateDevicePatch, eventClients } = deps;
+  const { readDb, writeDb, requireAuth, requireEventAuth, addHistory, getIotStore, getIotMqttClient, emitIotEvent, validDeviceId, validateDevicePatch, eventClients, recordCommand } = deps;
   const express = require('express');
   const router = express.Router();
 
@@ -35,6 +35,13 @@ module.exports = function(deps) {
     addHistory(db, allowed.user, 'iot_discovery', 'Descubrimiento IoT solicitado');
     writeDb(db);
     return res.status(202).json({ ok: true });
+  });
+
+  router.get('/alerts/list', (req, res) => {
+    const db = readDb();
+    const allowed = requireAuth(req, db, 'view_dashboard');
+    if (allowed.error) return res.status(allowed.status).json({ error: allowed.error });
+    return res.status(200).json({ alerts: getIotStore().listAlerts(Number(req.query.limit) || 50) });
   });
 
   router.get('/:id', (req, res) => {
@@ -93,6 +100,7 @@ module.exports = function(deps) {
     addHistory(db, allowed.user, 'iot_command', `Comando ${command} enviado a ${record.deviceId}`, { deviceId: record.deviceId });
     writeDb(db);
     emitIotEvent('command', record);
+    if (typeof recordCommand === 'function') recordCommand(record.deviceId, command);
     return res.status(202).json({ command: record });
   });
 

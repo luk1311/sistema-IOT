@@ -19,6 +19,7 @@
     "jimp": "^0.22.10",
     "jsonwebtoken": "^9.0.3",
     "mqtt": "^5.15.1",
-    "png-to-ico": "^3.0.1"
+    "png-to-ico": "^3.0.1",
+    "web-push": "^3.6.7"
   }
 }
