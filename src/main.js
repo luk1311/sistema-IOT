@@ -4,7 +4,7 @@ import { login, logout } from './auth.js';
 import { switchView } from './views.js';
 import { resetAll, mover, irA, setModo } from './robot.js';
 import { conectarMqtt, disconnectMqtt, publish, hydrateMqttForm } from './mqtt.js';
-import { discoverDevices, showCloudConfigModal, closeCloudConfigModal, saveCloudConfig } from './devices.js';
+import { discoverDevices, showCloudConfigModal, closeCloudConfigModal, saveCloudConfig, showMicroWizard, closeMicroWizard, generateArduinoCode, copyMicroCode, downloadMicroCode } from './devices.js';
 import { createUser, toggleUser, deleteUser } from './users.js';
 import { createAutomation, runAutomation, addVisualStep, handleStepActionChange } from './automations.js';
 import { clearHistory } from './history.js';
@@ -45,6 +45,13 @@ function bindEvents() {
   $('close-cloud-config-modal')?.addEventListener('click', closeCloudConfigModal);
   $('cancel-cloud-config-btn')?.addEventListener('click', closeCloudConfigModal);
   $('save-cloud-config-btn')?.addEventListener('click', saveCloudConfig);
+  $('add-micro-btn')?.addEventListener('click', showMicroWizard);
+  $('close-micro-wizard-modal')?.addEventListener('click', closeMicroWizard);
+  $('micro-name-input')?.addEventListener('input', generateArduinoCode);
+  $('micro-wifi-ssid')?.addEventListener('input', generateArduinoCode);
+  $('micro-wifi-pass')?.addEventListener('input', generateArduinoCode);
+  $('copy-micro-btn')?.addEventListener('click', copyMicroCode);
+  $('download-micro-btn')?.addEventListener('click', downloadMicroCode);
   $('export-config-btn')?.addEventListener('click', exportConfig);
   $('import-config-input')?.addEventListener('change', (event) => {
     importConfig(event.target.files[0]);

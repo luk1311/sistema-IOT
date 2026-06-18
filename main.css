@@ -1122,6 +1122,31 @@ input[type="range"]::-webkit-slider-thumb {
   animation: fadeIn 0.3s ease;
 }
 
+/* Micro Wizard Modal styling */
+#micro-wizard-modal {
+  position: fixed; inset: 0; z-index: 100;
+  display: none; align-items: center; justify-content: center;
+  background: rgba(0,0,0,0.8);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+#micro-wizard-modal.active {
+  display: flex;
+  animation: fadeIn 0.3s ease;
+}
+/* Estilizar el scrollbar del output de código */
+#micro-code-output::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+#micro-code-output::-webkit-scrollbar-track {
+  background: rgba(0,0,0,0.3);
+}
+#micro-code-output::-webkit-scrollbar-thumb {
+  background: var(--accent-ai);
+  border-radius: 4px;
+}
+
 /* Responsive automation steps */
 @media (max-width: 576px) {
   .step-row {

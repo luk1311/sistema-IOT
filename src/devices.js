@@ -207,3 +207,141 @@ export async function saveCloudConfig() {
   await discoverDevices();
 }
 
+// --- ASISTENTE DE MICROCONTROLADORES ---
+
+export function showMicroWizard() {
+  if (!hasPermission('manage_devices')) return addLog('No tienes permiso para añadir dispositivos', 'err');
+  const modal = $('micro-wizard-modal');
+  if (!modal) return;
+  
+  // Set default values
+  $('micro-name-input').value = 'Sensor Sala';
+  
+  // Auto-detect IP from current window location
+  const hostname = window.location.hostname;
+  $('micro-mqtt-ip').value = hostname === 'localhost' ? '192.168.1.X' : hostname;
+  
+  // Generate code initial
+  generateArduinoCode();
+  
+  modal.style.display = 'flex';
+}
+
+export function closeMicroWizard() {
+  const modal = $('micro-wizard-modal');
+  if (modal) modal.style.display = 'none';
+}
+
+export function generateArduinoCode() {
+  const name = $('micro-name-input').value.trim() || 'Mi Sensor';
+  const id = name.toLowerCase().replace(/[^a-z0-9]/g, '_') + '_' + Math.floor(Math.random() * 1000);
+  $('micro-id-input').value = id;
+  
+  const ssid = $('micro-wifi-ssid').value || 'TU_RED_WIFI';
+  const pass = $('micro-wifi-pass').value || 'TU_PASSWORD_WIFI';
+  const ip = $('micro-mqtt-ip').value || '192.168.1.100';
+
+  const code = `#include <WiFi.h>
+#include <PubSubClient.h>
+
+// ==========================================
+// CONFIGURACIÓN
+// ==========================================
+const char* ssid = "${ssid}";
+const char* password = "${pass}";
+
+const char* mqtt_server = "${ip}"; 
+const int mqtt_port = 1883;
+
+const char* device_id = "${id}";
+const char* device_name = "${name}";
+
+String telemetry_topic = String("devices/") + device_id + "/telemetry";
+String command_topic = String("devices/") + device_id + "/cmd";
+
+WiFiClient espClient;
+PubSubClient client(espClient);
+unsigned long lastMsg = 0;
+
+void setup_wifi() {
+  delay(10);
+  Serial.begin(115200);
+  WiFi.begin(ssid, password);
+  while (WiFi.status() != WL_CONNECTED) { delay(500); Serial.print("."); }
+  Serial.println("\\nWiFi conectado.");
+}
+
+void callback(char* topic, byte* payload, unsigned int length) {
+  String msg;
+  for (int i = 0; i < length; i++) msg += (char)payload[i];
+  Serial.println("Comando recibido: " + msg);
+  
+  // AQUI TU LOGICA DE CONTROL (ej. if (msg == "encender") ...)
+}
+
+void reconnect() {
+  while (!client.connected()) {
+    if (client.connect(device_id)) {
+      client.subscribe(command_topic.c_str());
+    } else {
+      delay(5000);
+    }
+  }
+}
+
+void setup() {
+  setup_wifi();
+  client.setServer(mqtt_server, mqtt_port);
+  client.setCallback(callback);
+}
+
+void loop() {
+  if (!client.connected()) reconnect();
+  client.loop();
+
+  unsigned long now = millis();
+  if (now - lastMsg > 5000) {
+    lastMsg = now;
+    
+    // Tus lecturas de sensores aqui
+    float temperatura = 24.5; 
+    
+    // JSON Payload para TADASHY
+    String payload = "{";
+    payload += "\\\"deviceId\\\":\\\"" + String(device_id) + "\\\",";
+    payload += "\\\"name\\\":\\\"" + String(device_name) + "\\\",";
+    payload += "\\\"type\\\":\\\"esp32\\\",";
+    payload += "\\\"payload\\\":{";
+    payload += "\\\"temperatura\\\":" + String(temperatura);
+    payload += "}}";
+
+    client.publish(telemetry_topic.c_str(), payload.c_str());
+  }
+}`;
+
+  $('micro-code-output').textContent = code;
+  return code;
+}
+
+export function copyMicroCode() {
+  const code = $('micro-code-output').textContent;
+  navigator.clipboard.writeText(code).then(() => {
+    addLog('Código copiado al portapapeles', 'ok');
+  }).catch(() => {
+    addLog('Error copiando código', 'err');
+  });
+}
+
+export function downloadMicroCode() {
+  const code = $('micro-code-output').textContent;
+  const id = $('micro-id-input').value || 'sensor';
+  const blob = new Blob([code], { type: 'text/plain' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = \`tadashy_\${id}.ino\`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
