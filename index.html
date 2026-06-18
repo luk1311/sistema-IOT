@@ -191,7 +191,7 @@
 
       <!-- VIEW: DEVICES -->
       <section id="view-devices" class="view">
-        <div style="margin-bottom: 16px; display: flex; gap: 10px; flex-wrap: wrap; align-items: center;">
+        <div class="devices-action-bar">
           <button id="discover-devices-btn" class="btn btn-primary">
             <span class="material-symbols-outlined">cloud_download</span> Sincronizar Nube
           </button>
@@ -205,7 +205,7 @@
             <span class="material-symbols-outlined">upload</span> Importar config
             <input type="file" id="import-config-input" accept="application/json" style="display: none;">
           </label>
-          <div id="device-filter-bar" style="margin-left: auto;"></div>
+          <div id="device-filter-bar"></div>
         </div>
         <div id="device-grid" class="device-grid">
           <!-- Devices injected by JS -->
