@@ -296,7 +296,40 @@ function send(res, status, data) {
 
 app.use(cors());
 app.use(express.json({ limit: '5mb' }));
-app.use(express.static(__dirname));
+
+// Bloquear acceso público a archivos y carpetas sensibles del backend.
+// express.static(__dirname) expone toda la raiz del proyecto, asi que este
+// middleware debe ir ANTES y devolver 404 para credenciales, codigo de servidor
+// y datos persistidos.
+const BLOCKED_STATIC = [
+  /^\/firebase-key\.json$/i,
+  /^\/package(-lock)?\.json$/i,
+  /^\/server\.js$/i,
+  /^\/ai_service\.js$/i,
+  /^\/iot_store\.js$/i,
+  /^\/tadashy_ai_core\.js$/i,
+  /^\/migrate_to_firebase\.js$/i,
+  /^\/data(\/|$)/i,
+  /^\/node_modules(\/|$)/i,
+  /^\/\.git(\/|$)/i,
+  /^\/src\/routes(\/|$)/i
+];
+
+app.use((req, res, next) => {
+  if (req.path.startsWith('/api')) return next();
+  let decodedPath;
+  try {
+    decodedPath = decodeURIComponent(req.path);
+  } catch (err) {
+    decodedPath = req.path;
+  }
+  if (BLOCKED_STATIC.some((pattern) => pattern.test(decodedPath))) {
+    return res.status(404).json({ error: 'No encontrado' });
+  }
+  return next();
+});
+
+app.use(express.static(__dirname, { dotfiles: 'ignore' }));
 
 function requireAuth(req, db, permission) {
   const header = req.headers.authorization || '';
