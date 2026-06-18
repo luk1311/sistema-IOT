@@ -51,7 +51,6 @@ function renderRuleForm(panel) {
         </div>
         <button type="submit" class="btn btn-primary" style="justify-content: center;">Crear regla</button>
       </form>
-      <div id="rule-list" class="rule-list" style="margin-top: 16px; display: flex; flex-direction: column;"></div>
     </div>`;
 
   const trigDev = $('rule-trig-device');

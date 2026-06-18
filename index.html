@@ -374,8 +374,9 @@
 
       <!-- VIEW: AUTOMATIONS -->
       <section id="view-automations" class="view">
-        <div class="dashboard-grid">
-          <div class="col-4">
+        <!-- Formularios (Nueva Rutina y Nueva Regla) -->
+        <div style="display: flex; gap: 24px; flex-wrap: wrap; margin-bottom: 24px;">
+          <div style="flex: 1; min-width: 300px;">
             <form id="automation-form" class="glass-panel panel-p-lg">
               <h3 class="font-outfit" style="margin-bottom: 16px; font-size: 18px;">Nueva Rutina</h3>
               <input type="text" id="auto-name" class="input-futuristic" placeholder="Nombre (ej. Secuencia Alfa)"
@@ -393,11 +394,24 @@
                 Rutina</button>
             </form>
           </div>
-          <div class="col-8">
+          <div style="flex: 1.5; min-width: 300px;">
             <!-- Panel de Reglas (Fase 3) inyectado por JS -->
-            <div id="rules-panel" style="margin-bottom: 24px;"></div>
+            <div id="rules-panel"></div>
+          </div>
+        </div>
+
+        <!-- Historial / Listas (Rutinas guardadas y Reglas guardadas) -->
+        <div style="display: flex; gap: 24px; flex-wrap: wrap;">
+          <div style="flex: 1; min-width: 300px;" class="glass-panel panel-p-lg">
+            <h3 class="font-outfit" style="margin-bottom: 16px; font-size: 18px;">Historial de Rutinas</h3>
             <div id="automation-list" style="display: flex; flex-direction: column;">
               <!-- Automations injected by JS -->
+            </div>
+          </div>
+          <div style="flex: 1.5; min-width: 300px;" class="glass-panel panel-p-lg">
+            <h3 class="font-outfit" style="margin-bottom: 16px; font-size: 18px;">Historial de Reglas</h3>
+            <div id="rule-list" style="display: flex; flex-direction: column;">
+              <!-- Rules injected by JS -->
             </div>
           </div>
         </div>
