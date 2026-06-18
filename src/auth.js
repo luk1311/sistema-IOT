@@ -28,9 +28,11 @@ export function renderShell() {
   document.querySelectorAll('[data-permission]').forEach((el) => {
     el.classList.toggle('hidden', !hasPermission(el.dataset.permission));
   });
-  const activeNav = document.querySelector('.nav-btn.active');
-  if (activeNav && !activeNav.classList.contains('hidden')) {
-    switchView(activeNav.dataset.view);
+  const hash = window.location.hash.slice(1);
+  const targetView = hash || 'dashboard';
+  const targetBtn = document.querySelector(`.nav-btn[data-view="${targetView}"]`);
+  if (targetBtn && !targetBtn.classList.contains('hidden')) {
+    switchView(targetView);
   } else {
     switchView('dashboard');
   }

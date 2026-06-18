@@ -73,7 +73,12 @@ function bindEvents() {
 
   $('nav-tabs').addEventListener('click', (event) => {
     const button = event.target.closest('.nav-btn');
-    if (button) switchView(button.dataset.view);
+    if (button) window.location.hash = button.dataset.view;
+  });
+
+  window.addEventListener('hashchange', () => {
+    const view = window.location.hash.slice(1);
+    switchView(view);
   });
 
   const mobileMenuBtn = $('mobile-menu-btn');
