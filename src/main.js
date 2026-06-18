@@ -11,6 +11,7 @@ import { clearHistory } from './history.js';
 import { sendAiMessage, executeBotAction } from './ai.js';
 import { toggleVoice, toggleHandsFree, stopSpeaking, initVoiceAssistant, updateVoiceStatus } from './voice.js';
 import { renderShell } from './auth.js';
+import { initEntityControls } from './entities.js';
 
 // Handlers requeridos por HTML generado dinámicamente (onclick/onchange inline)
 window.executeBotAction = executeBotAction;
@@ -145,6 +146,7 @@ function bindEvents() {
 
 // --- Arranque ---
 bindEvents();
+initEntityControls();
 hydrateMqttForm();
 updateVoiceStatus(state.handsFreeMode ? 'Manos libres activo' : 'Voz lista · Hey TADASHY');
 renderShell();

@@ -4,6 +4,7 @@ import { api, saveHistory } from './api.js';
 import { hasPermission } from './auth.js';
 import { updateAngle } from './robot.js';
 import { refreshDevicesSoon } from './devices.js';
+import { applyEntityState } from './entities.js';
 
 export async function publish(topic, payload) {
   if (!hasPermission('mqtt_publish')) {
@@ -82,6 +83,7 @@ export function connectMqtt({ host, port, username, password }) {
     $('conn-badge').innerHTML = '<i class="ti ti-wifi"></i> MQTT conectado';
     state.client.subscribe('brazo/#');
     state.client.subscribe('devices/#');
+    state.client.subscribe('tadashy/#');
     addLog('Broker MQTT conectado', 'ok');
     saveHistory('mqtt_connect', `Conexión MQTT a ${host}`);
   });
@@ -115,6 +117,9 @@ export function onMqttMessage(topic, payloadBuffer) {
   $('mqtt-total').textContent = state.mqttTotal;
   addMqttRow(topic, payload);
   setDevice(topic === 'brazo/status' ? payload === 'online' : true);
+
+  // Widgets genéricos por entidad (resuelve contra entity.mqtt.state).
+  applyEntityState(topic, payload);
 
   const deviceTopic = topic.match(/^devices\/([^/]+)\/(status|telemetry|config)$/);
   if (deviceTopic) refreshDevicesSoon();

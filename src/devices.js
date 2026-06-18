@@ -2,6 +2,7 @@ import { API, $, escapeHtml, state } from './state.js';
 import { addLog } from './logger.js';
 import { api } from './api.js';
 import { hasPermission } from './auth.js';
+import { deviceEntitiesHtml, reindexEntities } from './entities.js';
 
 export async function loadDevices() {
   if (!hasPermission('view_dashboard')) return;
@@ -50,9 +51,13 @@ export function renderDevices() {
           <div><span>Ultimo heartbeat</span><strong>${escapeHtml(lastSeen)}</strong></div>
           <div><span>Firmware</span><strong>${escapeHtml(firmware)}</strong></div>
         </div>
+        ${deviceEntitiesHtml(device)}
         <div class="device-telemetry">${escapeHtml(telemetry)}</div>
       </div>`;
   }).join('');
+
+  // Reconstruir el índice tópico→entidad para resolver MQTT entrante.
+  reindexEntities();
 }
 
 export function refreshDevicesSoon() {

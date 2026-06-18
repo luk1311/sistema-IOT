@@ -1,9 +1,27 @@
 const fs = require('fs');
 const path = require('path');
 const Database = require('better-sqlite3');
+const {
+  validateEntities,
+  findDuplicateEntityIds,
+  deriveCapabilities
+} = require('./src/schemas/device-schema');
 
 const DEVICE_ID_RE = /^[a-zA-Z0-9_-]{3,64}$/;
 const MAX_TELEMETRY_ROWS = 5000;
+
+// Entidades por defecto del brazo robotico (4 servos como capacidades `range`).
+// Usan los topicos MQTT legacy para no romper el control actual.
+const BRAZO_ENTITIES = [
+  { id: 'base', name: 'Base', capability: 'range', min: 0, max: 180, step: 1, unit: '°', default: 90,
+    mqtt: { set: 'brazo/servo/1', state: 'brazo/servo/feedback/1' }, ui: { icon: 'ti-rotate-clockwise', order: 1 } },
+  { id: 'shoulder', name: 'Hombro', capability: 'range', min: 0, max: 180, step: 1, unit: '°', default: 90,
+    mqtt: { set: 'brazo/servo/2', state: 'brazo/servo/feedback/2' }, ui: { icon: 'ti-arrow-up', order: 2 } },
+  { id: 'elbow', name: 'Codo', capability: 'range', min: 0, max: 180, step: 1, unit: '°', default: 90,
+    mqtt: { set: 'brazo/servo/3', state: 'brazo/servo/feedback/3' }, ui: { icon: 'ti-fold-up', order: 3 } },
+  { id: 'wrist', name: 'Muñeca', capability: 'range', min: 0, max: 180, step: 1, unit: '°', default: 90,
+    mqtt: { set: 'brazo/servo/4', state: 'brazo/servo/feedback/4' }, ui: { icon: 'ti-hand-grab', order: 4 } }
+];
 const MAX_TELEMETRY_DEPTH = 4;
 const MAX_TELEMETRY_KEYS = 80;
 
@@ -29,6 +47,7 @@ function normalizeDeviceId(deviceId) {
 
 function rowToDevice(row) {
   if (!row) return null;
+  const config = parseJson(row.config, {});
   return {
     deviceId: row.device_id,
     name: row.name,
@@ -37,8 +56,9 @@ function rowToDevice(row) {
     firmware: row.firmware,
     ip: row.ip,
     capabilities: parseJson(row.capabilities, []),
+    entities: Array.isArray(config.entities) ? config.entities : [],
     metadata: parseJson(row.metadata, {}),
-    config: parseJson(row.config, {}),
+    config,
     lastTelemetry: parseJson(row.last_telemetry, null),
     firstSeen: row.first_seen,
     lastSeen: row.last_seen,
@@ -251,15 +271,52 @@ async function createIotStore({ dataDir, filename = 'iot.sqlite' }) {
     if (!id) return null;
     const current = getDevice(id);
     const ts = nowIso();
+
+    // --- Modelo de entidades (Fase 0) ---
+    // Solo se valida cuando la llamada trae entidades explicitas; el camino de
+    // telemetria/heartbeat (sin entities) no paga el costo de validacion.
+    const entitiesProvided = patch.entities !== undefined
+      || (patch.config && patch.config.entities !== undefined);
+    const resolvedEntities = patch.entities !== undefined
+      ? patch.entities
+      : (patch.config && patch.config.entities !== undefined)
+        ? patch.config.entities
+        : (current?.entities || []);
+
+    if (entitiesProvided) {
+      if (!Array.isArray(resolvedEntities)) {
+        throw new Error('entities debe ser un array');
+      }
+      const { valid, errors } = validateEntities(resolvedEntities);
+      if (!valid) {
+        throw new Error('Entidades invalidas: ' + JSON.stringify(errors));
+      }
+      const dups = findDuplicateEntityIds(resolvedEntities);
+      if (dups.length) {
+        throw new Error('IDs de entidad duplicados: ' + dups.join(', '));
+      }
+    }
+
+    const safeEntities = Array.isArray(resolvedEntities) ? resolvedEntities : [];
+    const baseConfig = patch.config || current?.config || {};
+    const mergedConfig = (safeEntities.length || entitiesProvided)
+      ? { ...baseConfig, entities: safeEntities }
+      : baseConfig;
+    // capabilities se deriva de las entidades para mantener compatible el
+    // matching de IA (ContextBuilder / AutomationGenerator).
+    const capabilities = safeEntities.length
+      ? deriveCapabilities(safeEntities)
+      : (patch.capabilities || current?.capabilities || []);
+
     const next = {
       name: String(patch.name || current?.name || id).slice(0, 80),
       type: String(patch.type || current?.type || 'esp32').slice(0, 40),
       status: patch.status || current?.status || 'online',
       firmware: patch.firmware || current?.firmware || null,
       ip: patch.ip || current?.ip || null,
-      capabilities: JSON.stringify(patch.capabilities || current?.capabilities || []),
+      capabilities: JSON.stringify(capabilities),
       metadata: JSON.stringify({ ...(current?.metadata || {}), ...(patch.metadata || {}) }),
-      config: JSON.stringify(patch.config || current?.config || {}),
+      config: JSON.stringify(mergedConfig),
       lastTelemetry: JSON.stringify(patch.lastTelemetry || current?.lastTelemetry || null),
       firstSeen: current?.firstSeen || ts,
       lastSeen: patch.lastSeen || ts,
@@ -500,6 +557,12 @@ async function createIotStore({ dataDir, filename = 'iot.sqlite' }) {
 
   function close() {
     db.close();
+  }
+
+  // Sembrar las entidades del brazo si todavia no las tiene (no pisa ediciones del usuario).
+  const seededBrazo = getDevice('brazo');
+  if (seededBrazo && (!seededBrazo.entities || seededBrazo.entities.length === 0)) {
+    registerDevice('brazo', { type: 'robot', entities: BRAZO_ENTITIES });
   }
 
   return {
