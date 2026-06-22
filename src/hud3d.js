@@ -162,15 +162,6 @@ export function initHud3d() {
   turretLed.rotation.x = -Math.PI / 2; turretLed.position.y = 0.31; baseGroup.add(turretLed);
   const facing = led(new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.1, 0.14), matLed));
   facing.position.set(0, 0.17, 0.38); baseGroup.add(facing); // indicador de orientación
-  // Cableado lateral (manguera grafito) de la base hacia el hombro.
-  const cableCurve = new THREE.CatmullRomCurve3([
-    new THREE.Vector3(0.3, 0.05, 0.18),
-    new THREE.Vector3(0.36, 0.45, 0.12),
-    new THREE.Vector3(0.22, 0.85, 0.02),
-    new THREE.Vector3(0.12, 1.2, 0.0)
-  ]);
-  const cable = new THREE.Mesh(new THREE.TubeGeometry(cableCurve, 28, 0.028, 8), matBolt);
-  baseGroup.add(cable);
   // Handle plano para arrastrar la base.
   const baseHandle = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.5, 0.05, 36),
     new THREE.MeshBasicMaterial({ color: 0x00d4ff, transparent: true, opacity: 0.16 }));
