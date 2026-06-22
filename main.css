@@ -147,6 +147,69 @@ h1, h2, h3, h4, .font-outfit {
   margin-top: 16px;
 }
 
+/* === Brazo Robótico · HUB === */
+.arm-hub { display: flex; flex-direction: column; }
+.arm-hub-head {
+  display: flex; align-items: flex-start; justify-content: space-between;
+  gap: 16px; margin-bottom: 20px; flex-wrap: wrap;
+}
+.arm-hub-title { display: flex; align-items: center; gap: 14px; }
+.arm-hub-icon {
+  font-size: 28px; color: var(--accent-ai);
+  background: var(--accent-ai-glow); padding: 10px; border-radius: var(--radius-md);
+  border: 1px solid var(--border-glow);
+}
+.arm-hub-title h3 { font-size: 20px; color: var(--text-primary); line-height: 1.1; }
+.arm-hub-badges { display: flex; gap: 8px; margin-top: 6px; flex-wrap: wrap; }
+.arm-badge {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-size: 11px; font-weight: 600; padding: 3px 9px;
+  border-radius: var(--radius-full); border: 1px solid var(--border-glass);
+  color: var(--text-secondary); background: rgba(255, 255, 255, 0.03);
+}
+.arm-badge .material-symbols-outlined { font-size: 14px; }
+.arm-badge-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--text-muted); }
+.arm-badge.is-online { color: var(--accent-online); border-color: rgba(0, 255, 127, 0.25); background: rgba(0, 255, 127, 0.08); }
+.arm-badge.is-online .arm-badge-dot { background: var(--accent-online); box-shadow: 0 0 8px var(--accent-online); animation: arm-pulse 2s infinite; }
+.arm-badge.is-offline { color: var(--accent-offline); border-color: rgba(255, 99, 71, 0.25); background: rgba(255, 99, 71, 0.08); }
+.arm-badge.is-offline .arm-badge-dot { background: var(--accent-offline); }
+.arm-badge.is-mode { color: var(--accent-ai); border-color: var(--border-glow); background: var(--accent-ai-glow); }
+@keyframes arm-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+.arm-hub-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+
+.arm-hub-stage {
+  width: 100%; height: 320px; position: relative; overflow: hidden;
+  border-radius: var(--radius-md); border: 1px solid var(--border-glass);
+  background: radial-gradient(circle at 50% 30%, #ffffff, #e6e8f0);
+  margin-bottom: 16px;
+}
+.arm-hub-hint {
+  position: absolute; bottom: 8px; left: 12px; font-size: 11px;
+  color: rgba(0, 0, 0, 0.45); pointer-events: none;
+}
+
+.joint-readout { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+.joint-card {
+  padding: 12px 14px; border-radius: var(--radius-md);
+  background: rgba(255, 255, 255, 0.03); border: 1px solid var(--border-glass);
+  display: flex; flex-direction: column; gap: 8px;
+}
+.joint-card-top { display: flex; align-items: baseline; justify-content: space-between; gap: 6px; }
+.joint-name { font-size: 12px; color: var(--text-secondary); font-weight: 500; }
+.joint-angle { font-size: 20px; font-family: 'Outfit', sans-serif; font-weight: 700; color: var(--text-primary); }
+.joint-bar { height: 5px; border-radius: var(--radius-full); background: rgba(255, 255, 255, 0.08); overflow: hidden; }
+.joint-bar-fill {
+  height: 100%; width: 50%; border-radius: var(--radius-full);
+  background: linear-gradient(90deg, var(--accent-ai), #b388ff);
+  box-shadow: 0 0 8px var(--accent-ai-glow); transition: width 0.25s ease-out;
+}
+.joint-servo { font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; }
+@media (max-width: 768px) {
+  .joint-readout { grid-template-columns: repeat(2, 1fr); }
+  .arm-hub-actions { width: 100%; }
+  .arm-hub-actions .btn { flex: 1; justify-content: center; }
+}
+
 /* Components */
 .glass-panel {
   background: var(--bg-glass);

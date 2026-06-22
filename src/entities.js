@@ -179,11 +179,27 @@ export function deviceEntitiesHtml(device) {
   return `<div class="entity-grid">${entities.map((e) => widgetHtml(device, e)).join('')}</div>`;
 }
 
+// Actualiza los indicadores de estado del HUB del brazo (en línea / modo de operación).
+export function updateArmHub() {
+  const brazo = (state.devices || []).find((d) => d.deviceId === 'brazo');
+  const badge = document.getElementById('arm-status-badge');
+  const statusText = document.getElementById('arm-status-text');
+  if (badge && statusText) {
+    const online = brazo?.status === 'online';
+    badge.classList.toggle('is-online', online);
+    badge.classList.toggle('is-offline', !online);
+    statusText.textContent = online ? 'En línea' : 'Desconectado';
+  }
+  const modeText = document.getElementById('arm-mode-text');
+  if (modeText) modeText.textContent = state.currentMode === 'auto' ? 'Automático' : 'Manual';
+}
+
 // Llena el grid de gauges del modal del brazo desde su modelo de entidades.
 export function renderBrazoPanel() {
   const grid = document.getElementById('servo-grid');
   if (!grid) return;
   const brazo = (state.devices || []).find((d) => d.deviceId === 'brazo');
+  updateArmHub();
   const ranges = sortedEntities(brazo || {}).filter((e) => e.capability === 'range');
   if (!ranges.length) return; // aún no cargó el brazo
   if (brazo) {
@@ -280,6 +296,13 @@ function updateRangeVisual(widget, entity, value) {
   // Resumen del dashboard (ids dash-<entityId> coinciden con las entidades del brazo).
   const dash = document.getElementById('dash-' + entity.id);
   if (dash) dash.textContent = `${value}${entity.unit || '°'}`;
+  const dashbar = document.getElementById('dashbar-' + entity.id);
+  if (dashbar) {
+    const bmin = Number(entity.min ?? 0);
+    const bmax = Number(entity.max ?? 180);
+    const bfrac = bmax > bmin ? (value - bmin) / (bmax - bmin) : 0;
+    dashbar.style.width = `${Math.max(0, Math.min(1, bfrac)) * 100}%`;
+  }
 }
 
 // Actualización optimista para acciones que no vienen por slider (reset, automatizaciones).

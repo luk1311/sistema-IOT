@@ -25,6 +25,7 @@ function bindEvents() {
   $('logout-btn').addEventListener('click', logout);
   $('clear-log-btn').addEventListener('click', () => { $('log').innerHTML = ''; });
   $('reset-btn').addEventListener('click', resetAll);
+  $('arm-home-btn')?.addEventListener('click', resetAll);
   $('mqtt-form').addEventListener('submit', conectarMqtt);
   $('mqtt-disconnect').addEventListener('click', disconnectMqtt);
   $('publish-form').addEventListener('submit', (event) => {

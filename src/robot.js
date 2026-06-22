@@ -6,7 +6,7 @@ import { addLog } from './logger.js';
 import { saveHistory } from './api.js';
 import { hasPermission } from './auth.js';
 import { publish } from './mqtt.js';
-import { optimisticRange } from './entities.js';
+import { optimisticRange, updateArmHub } from './entities.js';
 
 const INTERVALO = 40;
 
@@ -47,5 +47,6 @@ export function setModo(modo) {
   $('btn-manual')?.classList.toggle('active', modo === 'manual');
   $('btn-auto')?.classList.toggle('active', modo === 'auto');
   publish('brazo/modo', modo);
+  updateArmHub();
   saveHistory('robot_mode', `Modo cambiado a ${modo}`);
 }

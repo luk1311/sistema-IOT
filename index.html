@@ -139,39 +139,60 @@
         </div>
 
         <div class="dashboard-grid">
-          <!-- Brazo Robótico Card -->
-          <div class="glass-panel panel-p-lg col-8">
-            <div class="flex-between" style="margin-bottom: 24px;">
-              <h3 class="font-outfit"
-                style="font-size: 20px; color: var(--text-primary); display: flex; align-items: center; gap: 8px;">
-                <span class="material-symbols-outlined" style="color: var(--accent-ai);">precision_manufacturing</span>
-                Brazo Robótico v1
-              </h3>
-              <button class="btn btn-primary" onclick="document.getElementById('robot-modal').classList.add('active')">
-                <span class="material-symbols-outlined">tune</span> Panel de Control
-              </button>
+          <!-- Brazo Robótico Card (HUB) -->
+          <div class="glass-panel panel-p-lg col-8 arm-hub">
+            <div class="arm-hub-head">
+              <div class="arm-hub-title">
+                <span class="material-symbols-outlined arm-hub-icon">precision_manufacturing</span>
+                <div>
+                  <h3 class="font-outfit">Brazo Robótico</h3>
+                  <div class="arm-hub-badges">
+                    <span id="arm-status-badge" class="arm-badge is-offline">
+                      <span class="arm-badge-dot"></span><span id="arm-status-text">Desconectado</span>
+                    </span>
+                    <span class="arm-badge is-mode">
+                      <span class="material-symbols-outlined">pan_tool</span><span id="arm-mode-text">Manual</span>
+                    </span>
+                  </div>
+                </div>
+              </div>
+              <div class="arm-hub-actions">
+                <button id="arm-home-btn" class="btn" title="Centrar todos los servos a 90°">
+                  <span class="material-symbols-outlined">home</span> Centrar
+                </button>
+                <button class="btn btn-primary" onclick="document.getElementById('robot-modal').classList.add('active')">
+                  <span class="material-symbols-outlined">tune</span> Panel de Control
+                </button>
+              </div>
             </div>
 
             <!-- Gemelo digital 3D (Three.js) -->
-            <div id="hud3d" style="width: 100%; height: 320px; border-radius: var(--radius-md); border: 1px solid var(--border-glass); background: radial-gradient(circle at 50% 30%, #ffffff, #e6e8f0); margin-bottom: 16px; position: relative; overflow: hidden;">
-              <span id="hud3d-hint" style="position:absolute; bottom:8px; left:12px; font-size:11px; color:var(--text-muted); pointer-events:none;">Arrastra el fondo para orbitar · arrastra una articulación para moverla</span>
+            <div id="hud3d" class="arm-hub-stage">
+              <span id="hud3d-hint" class="arm-hub-hint">Arrastra el fondo para orbitar · arrastra una articulación para moverla</span>
             </div>
 
-            <div
-              style="background: rgba(0,0,0,0.3); border-radius: var(--radius-md); padding: 16px; font-family: monospace; font-size: 13px; border: 1px solid var(--border-glass);">
-              <div class="flex-between"
-                style="margin-bottom: 12px; border-bottom: 1px dashed rgba(255,255,255,0.1); padding-bottom: 8px;">
-                <span style="color: var(--text-muted);">ARTICULACIÓN</span>
-                <span style="color: var(--text-muted);">ÁNGULO ACTUAL</span>
+            <!-- Lectura de articulaciones en vivo -->
+            <div class="joint-readout">
+              <div class="joint-card">
+                <div class="joint-card-top"><span class="joint-name">Base</span><strong class="joint-angle" id="dash-base">90°</strong></div>
+                <div class="joint-bar"><div class="joint-bar-fill" id="dashbar-base"></div></div>
+                <span class="joint-servo">Servo 1</span>
               </div>
-              <div class="flex-between" style="margin-bottom: 8px;"><span>Base (Servo 1)</span><strong id="dash-base"
-                  style="color: var(--accent-ai);">90°</strong></div>
-              <div class="flex-between" style="margin-bottom: 8px;"><span>Hombro (Servo 2)</span><strong
-                  id="dash-shoulder" style="color: var(--accent-ai);">90°</strong></div>
-              <div class="flex-between" style="margin-bottom: 8px;"><span>Codo (Servo 3)</span><strong id="dash-elbow"
-                  style="color: var(--accent-ai);">90°</strong></div>
-              <div class="flex-between"><span>Pinza (Servo 4)</span><strong id="dash-wrist"
-                  style="color: var(--accent-ai);">90°</strong></div>
+              <div class="joint-card">
+                <div class="joint-card-top"><span class="joint-name">Hombro</span><strong class="joint-angle" id="dash-shoulder">90°</strong></div>
+                <div class="joint-bar"><div class="joint-bar-fill" id="dashbar-shoulder"></div></div>
+                <span class="joint-servo">Servo 2</span>
+              </div>
+              <div class="joint-card">
+                <div class="joint-card-top"><span class="joint-name">Codo</span><strong class="joint-angle" id="dash-elbow">90°</strong></div>
+                <div class="joint-bar"><div class="joint-bar-fill" id="dashbar-elbow"></div></div>
+                <span class="joint-servo">Servo 3</span>
+              </div>
+              <div class="joint-card">
+                <div class="joint-card-top"><span class="joint-name">Pinza</span><strong class="joint-angle" id="dash-wrist">90°</strong></div>
+                <div class="joint-bar"><div class="joint-bar-fill" id="dashbar-wrist"></div></div>
+                <span class="joint-servo">Servo 4</span>
+              </div>
             </div>
           </div>
 
