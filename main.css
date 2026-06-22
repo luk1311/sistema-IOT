@@ -199,21 +199,6 @@ h1, h2, h3, h4, .font-outfit {
   color: var(--text-muted); pointer-events: none; letter-spacing: 0.2px;
 }
 
-/* Overlay de etiquetas HUD flotantes (proyectadas desde el 3D). */
-.hud-overlay { position: absolute; inset: 0; z-index: 3; pointer-events: none; }
-.hud-label {
-  position: absolute; top: 0; left: 0; will-change: transform, opacity;
-  display: inline-flex; align-items: center; gap: 5px; white-space: nowrap;
-  padding: 2px 8px; border-radius: var(--radius-full);
-  font-family: 'Outfit', sans-serif; font-size: 11px; font-weight: 600; color: #fff;
-  background: rgba(138, 43, 226, 0.22); border: 1px solid rgba(138, 43, 226, 0.55);
-  backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px);
-  box-shadow: 0 0 12px rgba(138, 43, 226, 0.35);
-  transition: opacity 0.2s ease;
-}
-.hud-label .lh { color: rgba(255, 255, 255, 0.55); font-weight: 500; }
-.hud-label .lv { color: #fff; font-variant-numeric: tabular-nums; }
-
 /* Esquinas de marco estilo visor. */
 .hud-frame { position: absolute; inset: 10px; z-index: 3; pointer-events: none; }
 .hud-frame i { position: absolute; width: 16px; height: 16px; border: 1px solid rgba(138, 43, 226, 0.6); }

@@ -1,13 +1,12 @@
 // Gemelo digital 3D del brazo (Fase 4) — Three.js, 100% en el navegador.
-// HUD holográfico: lee los ángulos de las entidades del brazo cada frame y mueve
-// el modelo, proyectando etiquetas de ángulo flotantes sobre cada articulación.
+// Espejo: lee los ángulos de las entidades del brazo cada frame y mueve el modelo.
 // Control: arrastrar una articulación cambia su ángulo y publica el comando
 // (vía el slider de la entidad -> entities.js onRangeInput). Sin carga al servidor.
 import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js';
 
 const JOINTS = ['base', 'shoulder', 'elbow', 'wrist'];
-const LABELS = { base: 'Base', shoulder: 'Hombro', elbow: 'Codo', wrist: 'Pinza' };
 const DEG = Math.PI / 180;
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 let initialized = false;
 
 // Lee el ángulo actual de una articulación desde el slider de su entidad.
@@ -43,130 +42,127 @@ export function initHud3d() {
   renderer.domElement.style.zIndex = '1';
   container.appendChild(renderer.domElement);
 
-  // Capa de overlay HUD (etiquetas flotantes), por encima del canvas.
-  const overlay = document.createElement('div');
-  overlay.className = 'hud-overlay';
-  container.appendChild(overlay);
-
   // Luces (entorno oscuro con realce púrpura/cian).
-  scene.add(new THREE.AmbientLight(0x9a8cff, 0.55));
-  const dir = new THREE.DirectionalLight(0xffffff, 1.1);
-  dir.position.set(4, 8, 5);
+  scene.add(new THREE.AmbientLight(0x9a8cff, 0.5));
+  const dir = new THREE.DirectionalLight(0xffffff, 1.15);
+  dir.position.set(4, 9, 5);
   scene.add(dir);
   const fill = new THREE.DirectionalLight(0x8a2be2, 0.7);
   fill.position.set(-5, 3, -4);
   scene.add(fill);
-  const rim = new THREE.PointLight(0x00ff7f, 0.5, 20);
-  rim.position.set(0, 1.5, -4);
+  const rim = new THREE.PointLight(0x00ff7f, 0.45, 22);
+  rim.position.set(0, 1.6, -4);
   scene.add(rim);
 
   // Rejilla de suelo estilo sci-fi (líneas púrpura sobre oscuro).
   const grid = new THREE.GridHelper(10, 20, 0x8a2be2, 0x2a2440);
-  grid.material.opacity = 0.55; grid.material.transparent = true;
+  grid.material.opacity = 0.5; grid.material.transparent = true;
   scene.add(grid);
 
-  // Anillo emisivo en la base (efecto plataforma holográfica).
+  // Anillo emisivo de plataforma (efecto holográfico, con latido suave).
   const ring = new THREE.Mesh(
-    new THREE.RingGeometry(0.95, 1.15, 48),
-    new THREE.MeshBasicMaterial({ color: 0x8a2be2, transparent: true, opacity: 0.45, side: THREE.DoubleSide })
+    new THREE.RingGeometry(0.95, 1.18, 56),
+    new THREE.MeshBasicMaterial({ color: 0x8a2be2, transparent: true, opacity: 0.4, side: THREE.DoubleSide })
   );
-  ring.rotation.x = -Math.PI / 2; ring.position.y = 0.012;
+  ring.rotation.x = -Math.PI / 2; ring.position.y = 0.01;
   scene.add(ring);
 
-  const matSeg = new THREE.MeshStandardMaterial({ color: 0x5a4a9a, emissive: 0x2a1a5a, emissiveIntensity: 0.35, metalness: 0.6, roughness: 0.35 });
-  const matJoint = new THREE.MeshStandardMaterial({ color: 0x8a2be2, emissive: 0x8a2be2, emissiveIntensity: 0.9, metalness: 0.3, roughness: 0.3 });
-  const matBase = new THREE.MeshStandardMaterial({ color: 0x1e1a32, emissive: 0x150f2a, emissiveIntensity: 0.4, metalness: 0.7, roughness: 0.5 });
+  // --- Materiales ---
+  const matBody = new THREE.MeshStandardMaterial({ color: 0x3a3556, metalness: 0.78, roughness: 0.34 });
+  const matLink = new THREE.MeshStandardMaterial({ color: 0x4a4470, metalness: 0.6, roughness: 0.42 });
+  const matJoint = new THREE.MeshStandardMaterial({ color: 0x8a2be2, emissive: 0x8a2be2, emissiveIntensity: 0.85, metalness: 0.4, roughness: 0.3 });
+  const matBase = new THREE.MeshStandardMaterial({ color: 0x16132a, emissive: 0x110c26, emissiveIntensity: 0.4, metalness: 0.7, roughness: 0.5 });
+  const matGrip = new THREE.MeshStandardMaterial({ color: 0x00ff7f, emissive: 0x00a85a, emissiveIntensity: 0.55, metalness: 0.5, roughness: 0.4 });
 
   const root = new THREE.Group();
   scene.add(root);
 
-  // Plataforma
-  const base = new THREE.Mesh(new THREE.CylinderGeometry(0.7, 0.8, 0.2, 24), matBase);
-  base.position.y = 0.1; root.add(base);
-
-  // Grupo que rota en Y (servo base)
-  const baseGroup = new THREE.Group(); baseGroup.position.y = 0.2; root.add(baseGroup);
-  const post = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.2, 0.5, 16), matSeg);
-  post.position.y = 0.25; baseGroup.add(post);
-
-  const joints = {};
-  function jointHandle(id) {
-    const s = new THREE.Mesh(new THREE.SphereGeometry(0.16, 20, 20), matJoint.clone());
-    s.userData.entityId = id;
-    return s;
-  }
-  function segment(len, w) {
-    const m = new THREE.Mesh(new THREE.BoxGeometry(w, len, w), matSeg);
-    m.position.y = len / 2;
-    return m;
+  // --- Helpers de geometría mecánica ---
+  // Motor de articulación: cilindro corto con el eje en Z (cara del servo a la vista).
+  // El cuerpo es el "handle" arrastrable (userData.entityId).
+  function motorJoint(id, radius = 0.17) {
+    const g = new THREE.Group();
+    const body = new THREE.Mesh(new THREE.CylinderGeometry(radius, radius, 0.3, 30), matJoint.clone());
+    body.rotation.x = Math.PI / 2;
+    body.userData.entityId = id;
+    g.add(body);
+    const cap = new THREE.Mesh(new THREE.CylinderGeometry(radius * 0.45, radius * 0.45, 0.34, 20),
+      new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0x8a2be2, emissiveIntensity: 0.4, metalness: 0.6, roughness: 0.3 }));
+    cap.rotation.x = Math.PI / 2;
+    g.add(cap);
+    return { group: g, handle: body };
   }
 
-  // Hombro
-  const shoulderPivot = new THREE.Group(); shoulderPivot.position.y = 0.5; baseGroup.add(shoulderPivot);
-  shoulderPivot.add(jointHandle('shoulder'));
-  shoulderPivot.add(segment(1.6, 0.22));
+  // Eslabón tipo viga: núcleo delgado + dos placas laterales (look mecánico).
+  function link(len, w) {
+    const g = new THREE.Group();
+    const core = new THREE.Mesh(new THREE.BoxGeometry(w * 0.55, len, w * 0.55), matLink);
+    core.position.y = len / 2; g.add(core);
+    const plate = new THREE.BoxGeometry(0.035, len * 0.92, w);
+    const pL = new THREE.Mesh(plate, matBody); pL.position.set(w * 0.33, len / 2, 0); g.add(pL);
+    const pR = pL.clone(); pR.position.x = -w * 0.33; g.add(pR);
+    return g;
+  }
 
-  // Codo
-  const elbowPivot = new THREE.Group(); elbowPivot.position.y = 1.6; shoulderPivot.add(elbowPivot);
-  elbowPivot.add(jointHandle('elbow'));
-  elbowPivot.add(segment(1.3, 0.18));
+  // --- Plataforma base ---
+  const baseDisk = new THREE.Mesh(new THREE.CylinderGeometry(0.85, 0.96, 0.12, 36), matBase);
+  baseDisk.position.y = 0.06; root.add(baseDisk);
+  const baseStep = new THREE.Mesh(new THREE.CylinderGeometry(0.52, 0.68, 0.16, 36), matBody);
+  baseStep.position.y = 0.18; root.add(baseStep);
 
-  // Muñeca
-  const wristPivot = new THREE.Group(); wristPivot.position.y = 1.3; elbowPivot.add(wristPivot);
-  wristPivot.add(jointHandle('wrist'));
-  wristPivot.add(segment(0.8, 0.14));
+  // --- Torreta giratoria (servo base) ---
+  const baseGroup = new THREE.Group(); baseGroup.position.y = 0.26; root.add(baseGroup);
+  const turret = new THREE.Mesh(new THREE.CylinderGeometry(0.33, 0.4, 0.32, 30), matBody);
+  turret.position.y = 0.16; baseGroup.add(turret);
+  const facing = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.1, 0.14), matJoint.clone());
+  facing.position.set(0, 0.16, 0.37); baseGroup.add(facing); // indicador de orientación frontal
+  // Handle plano para arrastrar la base (anillo translúcido sobre la torreta).
+  const baseHandle = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.5, 0.05, 36), matJoint.clone());
+  baseHandle.material.transparent = true; baseHandle.material.opacity = 0.22;
+  baseHandle.position.y = 0.02; baseHandle.userData.entityId = 'base'; baseGroup.add(baseHandle);
 
-  // Pinza (gripper) al final de la muñeca
-  const gripper = new THREE.Group(); gripper.position.y = 0.8; wristPivot.add(gripper);
-  const g1 = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.3, 0.06), matJoint);
-  g1.position.set(0.12, 0.15, 0); gripper.add(g1);
-  const g2 = g1.clone(); g2.position.x = -0.12; gripper.add(g2);
+  // --- Hombro ---
+  const shoulderPivot = new THREE.Group(); shoulderPivot.position.y = 0.42; baseGroup.add(shoulderPivot);
+  shoulderPivot.add(motorJoint('shoulder', 0.19).group);
+  shoulderPivot.add(link(1.5, 0.28));
 
-  // Manija de la base (para arrastrar el servo base): anillo en la plataforma
-  const baseHandle = jointHandle('base');
-  baseHandle.position.y = 0.2; baseHandle.scale.set(1.1, 0.5, 1.1); baseGroup.add(baseHandle);
+  // --- Codo ---
+  const elbowPivot = new THREE.Group(); elbowPivot.position.y = 1.5; shoulderPivot.add(elbowPivot);
+  elbowPivot.add(motorJoint('elbow', 0.16).group);
+  elbowPivot.add(link(1.2, 0.22));
 
-  joints.base = baseGroup;
-  joints.shoulder = shoulderPivot;
-  joints.elbow = elbowPivot;
-  joints.wrist = wristPivot;
+  // --- Muñeca + pinza ---
+  const wristPivot = new THREE.Group(); wristPivot.position.y = 1.2; elbowPivot.add(wristPivot);
+  wristPivot.add(motorJoint('wrist', 0.14).group);
+  const wristLink = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.11, 0.34, 22), matBody);
+  wristLink.position.y = 0.18; wristPivot.add(wristLink);
+  const palm = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.12, 0.22), matBody);
+  palm.position.y = 0.4; wristPivot.add(palm);
+
+  // Dedos de la pinza (se abren/cierran según el servo 4).
+  const gripper = new THREE.Group(); gripper.position.y = 0.46; wristPivot.add(gripper);
+  function finger() {
+    const f = new THREE.Group();
+    const arm = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.26, 0.13), matGrip);
+    arm.position.y = 0.13; f.add(arm);
+    const tip = new THREE.Mesh(new THREE.BoxGeometry(0.11, 0.05, 0.13), matGrip);
+    tip.position.y = 0.25; f.add(tip);
+    return f;
+  }
+  const fingerL = finger(); gripper.add(fingerL);
+  const fingerR = finger(); gripper.add(fingerR);
+
+  const joints = { base: baseGroup, shoulder: shoulderPivot, elbow: elbowPivot };
 
   const handleMeshes = [];
   scene.traverse((o) => { if (o.userData && o.userData.entityId) handleMeshes.push(o); });
-
-  // --- Etiquetas HUD flotantes (un div por articulación, posición proyectada) ---
-  const labelAnchors = { base: baseHandle, shoulder: shoulderPivot, elbow: elbowPivot, wrist: wristPivot };
-  const labelEls = {};
-  for (const id of JOINTS) {
-    const el = document.createElement('div');
-    el.className = 'hud-label';
-    el.innerHTML = `<span class="lh">${LABELS[id]}</span><span class="lv">90°</span>`;
-    overlay.appendChild(el);
-    labelEls[id] = el;
-  }
-  const projV = new THREE.Vector3();
-  function placeLabels() {
-    const w = container.clientWidth, h = container.clientHeight;
-    for (const id of JOINTS) {
-      labelAnchors[id].getWorldPosition(projV);
-      projV.project(camera);
-      const visible = projV.z < 1;
-      const el = labelEls[id];
-      el.style.opacity = visible ? '1' : '0';
-      if (!visible) continue;
-      const x = (projV.x * 0.5 + 0.5) * w;
-      const y = (-projV.y * 0.5 + 0.5) * h;
-      el.style.transform = `translate(-50%, -50%) translate(${x.toFixed(1)}px, ${y.toFixed(1)}px)`;
-      el.querySelector('.lv').textContent = `${Math.round(shown[id])}°`;
-    }
-  }
 
   // Ángulos suavizados
   const shown = { base: 90, shoulder: 90, elbow: 90, wrist: 90 };
 
   // --- Cámara orbital (esférica) ---
   const target = new THREE.Vector3(0, 1.6, 0);
-  const cam = { radius: 6.5, theta: 0.7, phi: 1.15 };
+  const cam = { radius: 6.5, theta: 0.7, phi: 1.1 };
   function updateCamera() {
     camera.position.x = target.x + cam.radius * Math.sin(cam.phi) * Math.sin(cam.theta);
     camera.position.y = target.y + cam.radius * Math.cos(cam.phi);
@@ -265,14 +261,20 @@ export function initHud3d() {
     for (const id of JOINTS) {
       const tgt = getAngle(id);
       shown[id] += (tgt - shown[id]) * 0.18; // suavizado
-      const rot = (shown[id] - 90) * DEG;
-      if (id === 'base') joints.base.rotation.y = rot;
-      else joints[id].rotation.z = rot;
+      if (id === 'wrist') {
+        // Servo 4 = apertura de la pinza (0° cerrada · 180° abierta).
+        const sep = 0.05 + clamp(shown.wrist / 180, 0, 1) * 0.17;
+        fingerL.position.x = sep;
+        fingerR.position.x = -sep;
+      } else if (id === 'base') {
+        joints.base.rotation.y = (shown.base - 90) * DEG;
+      } else {
+        joints[id].rotation.z = (shown[id] - 90) * DEG;
+      }
     }
-    ring.material.opacity = 0.35 + Math.sin(Date.now() * 0.002) * 0.12; // latido suave
+    ring.material.opacity = 0.32 + Math.sin(Date.now() * 0.002) * 0.12; // latido
     updateCamera();
     renderer.render(scene, camera);
-    placeLabels();
   }
   updateCamera();
   animate();
