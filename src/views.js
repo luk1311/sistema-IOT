@@ -34,6 +34,6 @@ export function switchView(view) {
   if (cleanView === 'automations') loadRules();
   // Gemelo digital 3D: import dinámico para aislar la dependencia de Three (CDN).
   if (cleanView === 'dashboard') {
-    import('./hud3d.js?v=2').then((m) => m.initHud3d()).catch(() => {});
+    import('./hud3d.js?v=3').then((m) => m.initHud3d()).catch(() => {});
   }
 }

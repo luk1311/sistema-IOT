@@ -1,10 +1,12 @@
 // Gemelo digital 3D del brazo (Fase 4) — Three.js, 100% en el navegador.
-// Espejo: lee los ángulos de las entidades del brazo cada frame y mueve el modelo.
+// HUD holográfico: lee los ángulos de las entidades del brazo cada frame y mueve
+// el modelo, proyectando etiquetas de ángulo flotantes sobre cada articulación.
 // Control: arrastrar una articulación cambia su ángulo y publica el comando
 // (vía el slider de la entidad -> entities.js onRangeInput). Sin carga al servidor.
 import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js';
 
 const JOINTS = ['base', 'shoulder', 'elbow', 'wrist'];
+const LABELS = { base: 'Base', shoulder: 'Hombro', elbow: 'Codo', wrist: 'Pinza' };
 const DEG = Math.PI / 180;
 let initialized = false;
 
@@ -30,30 +32,50 @@ export function initHud3d() {
   initialized = true;
 
   const scene = new THREE.Scene();
-  scene.background = new THREE.Color(0xeef0f6); // entorno claro
+  scene.background = null; // transparente: el fondo holográfico vive en el CSS
+  scene.fog = new THREE.Fog(0x0a0a14, 9, 20);
   const camera = new THREE.PerspectiveCamera(45, container.clientWidth / container.clientHeight, 0.1, 100);
   const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+  renderer.setClearColor(0x000000, 0);
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
   renderer.setSize(container.clientWidth, container.clientHeight);
+  renderer.domElement.style.position = 'relative';
+  renderer.domElement.style.zIndex = '1';
   container.appendChild(renderer.domElement);
 
-  // Luces (más blancas para un entorno claro)
-  scene.add(new THREE.AmbientLight(0xffffff, 0.85));
-  const dir = new THREE.DirectionalLight(0xffffff, 1.0);
+  // Capa de overlay HUD (etiquetas flotantes), por encima del canvas.
+  const overlay = document.createElement('div');
+  overlay.className = 'hud-overlay';
+  container.appendChild(overlay);
+
+  // Luces (entorno oscuro con realce púrpura/cian).
+  scene.add(new THREE.AmbientLight(0x9a8cff, 0.55));
+  const dir = new THREE.DirectionalLight(0xffffff, 1.1);
   dir.position.set(4, 8, 5);
   scene.add(dir);
-  const fill = new THREE.DirectionalLight(0x8a2be2, 0.4);
+  const fill = new THREE.DirectionalLight(0x8a2be2, 0.7);
   fill.position.set(-5, 3, -4);
   scene.add(fill);
+  const rim = new THREE.PointLight(0x00ff7f, 0.5, 20);
+  rim.position.set(0, 1.5, -4);
+  scene.add(rim);
 
-  // Rejilla de suelo (líneas oscuras para contraste sobre fondo claro)
-  const grid = new THREE.GridHelper(8, 16, 0x8a2be2, 0xb8b0d0);
-  grid.material.opacity = 0.5; grid.material.transparent = true;
+  // Rejilla de suelo estilo sci-fi (líneas púrpura sobre oscuro).
+  const grid = new THREE.GridHelper(10, 20, 0x8a2be2, 0x2a2440);
+  grid.material.opacity = 0.55; grid.material.transparent = true;
   scene.add(grid);
 
-  const matSeg = new THREE.MeshStandardMaterial({ color: 0x6a5acd, metalness: 0.4, roughness: 0.5 });
-  const matJoint = new THREE.MeshStandardMaterial({ color: 0x8a2be2, emissive: 0x4a1f8a, emissiveIntensity: 0.5, metalness: 0.3, roughness: 0.4 });
-  const matBase = new THREE.MeshStandardMaterial({ color: 0x3a3450, metalness: 0.5, roughness: 0.6 });
+  // Anillo emisivo en la base (efecto plataforma holográfica).
+  const ring = new THREE.Mesh(
+    new THREE.RingGeometry(0.95, 1.15, 48),
+    new THREE.MeshBasicMaterial({ color: 0x8a2be2, transparent: true, opacity: 0.45, side: THREE.DoubleSide })
+  );
+  ring.rotation.x = -Math.PI / 2; ring.position.y = 0.012;
+  scene.add(ring);
+
+  const matSeg = new THREE.MeshStandardMaterial({ color: 0x5a4a9a, emissive: 0x2a1a5a, emissiveIntensity: 0.35, metalness: 0.6, roughness: 0.35 });
+  const matJoint = new THREE.MeshStandardMaterial({ color: 0x8a2be2, emissive: 0x8a2be2, emissiveIntensity: 0.9, metalness: 0.3, roughness: 0.3 });
+  const matBase = new THREE.MeshStandardMaterial({ color: 0x1e1a32, emissive: 0x150f2a, emissiveIntensity: 0.4, metalness: 0.7, roughness: 0.5 });
 
   const root = new THREE.Group();
   scene.add(root);
@@ -112,6 +134,33 @@ export function initHud3d() {
   const handleMeshes = [];
   scene.traverse((o) => { if (o.userData && o.userData.entityId) handleMeshes.push(o); });
 
+  // --- Etiquetas HUD flotantes (un div por articulación, posición proyectada) ---
+  const labelAnchors = { base: baseHandle, shoulder: shoulderPivot, elbow: elbowPivot, wrist: wristPivot };
+  const labelEls = {};
+  for (const id of JOINTS) {
+    const el = document.createElement('div');
+    el.className = 'hud-label';
+    el.innerHTML = `<span class="lh">${LABELS[id]}</span><span class="lv">90°</span>`;
+    overlay.appendChild(el);
+    labelEls[id] = el;
+  }
+  const projV = new THREE.Vector3();
+  function placeLabels() {
+    const w = container.clientWidth, h = container.clientHeight;
+    for (const id of JOINTS) {
+      labelAnchors[id].getWorldPosition(projV);
+      projV.project(camera);
+      const visible = projV.z < 1;
+      const el = labelEls[id];
+      el.style.opacity = visible ? '1' : '0';
+      if (!visible) continue;
+      const x = (projV.x * 0.5 + 0.5) * w;
+      const y = (-projV.y * 0.5 + 0.5) * h;
+      el.style.transform = `translate(-50%, -50%) translate(${x.toFixed(1)}px, ${y.toFixed(1)}px)`;
+      el.querySelector('.lv').textContent = `${Math.round(shown[id])}°`;
+    }
+  }
+
   // Ángulos suavizados
   const shown = { base: 90, shoulder: 90, elbow: 90, wrist: 90 };
 
@@ -144,8 +193,10 @@ export function initHud3d() {
     lastX = e.clientX; lastY = e.clientY;
     if (hit) {
       mode = 'drag'; dragId = hit.object.userData.entityId; startX = e.clientX; startAngle = getAngle(dragId);
+      container.classList.add('is-grabbing');
     } else {
       mode = 'orbit';
+      container.classList.add('is-orbiting');
     }
     renderer.domElement.setPointerCapture(e.pointerId);
   });
@@ -164,6 +215,7 @@ export function initHud3d() {
   function endPointer(e) {
     if (mode === 'drag' && dragId) setAngle(dragId, getAngle(dragId), true); // commit final
     mode = null; dragId = null;
+    container.classList.remove('is-grabbing', 'is-orbiting');
     try { renderer.domElement.releasePointerCapture(e.pointerId); } catch (err) { /* noop */ }
   }
   renderer.domElement.addEventListener('pointerup', endPointer);
@@ -185,12 +237,17 @@ export function initHud3d() {
   const ro = new ResizeObserver(resize);
   ro.observe(container);
 
-  // Botón de pantalla completa
+  // Marco HUD (esquinas estilo visor) + botón de pantalla completa.
+  const frame = document.createElement('div');
+  frame.className = 'hud-frame';
+  frame.innerHTML = '<i></i><i></i><i></i><i></i>';
+  container.appendChild(frame);
+
   const fsBtn = document.createElement('button');
   fsBtn.type = 'button';
+  fsBtn.className = 'hud-fs-btn';
   fsBtn.title = 'Pantalla completa';
-  fsBtn.style.cssText = 'position:absolute; top:8px; right:8px; z-index:5; background:rgba(20,18,30,0.55); border:1px solid var(--border-glass); color:#fff; border-radius:8px; padding:4px 6px; cursor:pointer; display:flex; align-items:center;';
-  fsBtn.innerHTML = '<span class="material-symbols-outlined" style="font-size:18px;">fullscreen</span>';
+  fsBtn.innerHTML = '<span class="material-symbols-outlined">fullscreen</span>';
   fsBtn.addEventListener('click', () => {
     if (document.fullscreenElement) document.exitFullscreen();
     else container.requestFullscreen().catch(() => {});
@@ -212,8 +269,10 @@ export function initHud3d() {
       if (id === 'base') joints.base.rotation.y = rot;
       else joints[id].rotation.z = rot;
     }
+    ring.material.opacity = 0.35 + Math.sin(Date.now() * 0.002) * 0.12; // latido suave
     updateCamera();
     renderer.render(scene, camera);
+    placeLabels();
   }
   updateCamera();
   animate();
