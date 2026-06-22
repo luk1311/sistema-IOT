@@ -32,7 +32,7 @@ export function initHud3d() {
 
   const scene = new THREE.Scene();
   scene.background = null; // transparente: el fondo holográfico vive en el CSS
-  scene.fog = new THREE.Fog(0x0a0a14, 9, 20);
+  scene.fog = new THREE.Fog(0x080c14, 10, 22);
   const camera = new THREE.PerspectiveCamera(45, container.clientWidth / container.clientHeight, 0.1, 100);
   const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
   renderer.setClearColor(0x000000, 0);
@@ -42,115 +42,176 @@ export function initHud3d() {
   renderer.domElement.style.zIndex = '1';
   container.appendChild(renderer.domElement);
 
-  // Luces (entorno oscuro con realce púrpura/cian).
-  scene.add(new THREE.AmbientLight(0x9a8cff, 0.5));
-  const dir = new THREE.DirectionalLight(0xffffff, 1.15);
-  dir.position.set(4, 9, 5);
-  scene.add(dir);
-  const fill = new THREE.DirectionalLight(0x8a2be2, 0.7);
-  fill.position.set(-5, 3, -4);
+  // --- Luces (entorno oscuro, metal claro bien iluminado + realce cian) ---
+  scene.add(new THREE.AmbientLight(0xb8c4ff, 0.55));
+  const key = new THREE.DirectionalLight(0xffffff, 1.25);
+  key.position.set(4, 9, 6);
+  scene.add(key);
+  const fillFront = new THREE.DirectionalLight(0xdfe6ff, 0.5);
+  fillFront.position.set(0, 4, 8);
+  scene.add(fillFront);
+  const fill = new THREE.DirectionalLight(0x2a6cff, 0.45);
+  fill.position.set(-6, 3, -4);
   scene.add(fill);
-  const rim = new THREE.PointLight(0x00ff7f, 0.45, 22);
-  rim.position.set(0, 1.6, -4);
+  const rim = new THREE.PointLight(0x00d4ff, 0.7, 24);
+  rim.position.set(0, 1.6, -5);
   scene.add(rim);
 
-  // Rejilla de suelo estilo sci-fi (líneas púrpura sobre oscuro).
-  const grid = new THREE.GridHelper(10, 20, 0x8a2be2, 0x2a2440);
-  grid.material.opacity = 0.5; grid.material.transparent = true;
+  // Rejilla de suelo (líneas cian sobre oscuro).
+  const grid = new THREE.GridHelper(10, 20, 0x00d4ff, 0x1a222e);
+  grid.material.opacity = 0.45; grid.material.transparent = true;
   scene.add(grid);
 
   // Anillo emisivo de plataforma (efecto holográfico, con latido suave).
   const ring = new THREE.Mesh(
-    new THREE.RingGeometry(0.95, 1.18, 56),
-    new THREE.MeshBasicMaterial({ color: 0x8a2be2, transparent: true, opacity: 0.4, side: THREE.DoubleSide })
+    new THREE.RingGeometry(0.98, 1.2, 64),
+    new THREE.MeshBasicMaterial({ color: 0x00d4ff, transparent: true, opacity: 0.38, side: THREE.DoubleSide })
   );
   ring.rotation.x = -Math.PI / 2; ring.position.y = 0.01;
   scene.add(ring);
 
-  // --- Materiales ---
-  const matBody = new THREE.MeshStandardMaterial({ color: 0x3a3556, metalness: 0.78, roughness: 0.34 });
-  const matLink = new THREE.MeshStandardMaterial({ color: 0x4a4470, metalness: 0.6, roughness: 0.42 });
-  const matJoint = new THREE.MeshStandardMaterial({ color: 0x8a2be2, emissive: 0x8a2be2, emissiveIntensity: 0.85, metalness: 0.4, roughness: 0.3 });
-  const matBase = new THREE.MeshStandardMaterial({ color: 0x16132a, emissive: 0x110c26, emissiveIntensity: 0.4, metalness: 0.7, roughness: 0.5 });
-  const matGrip = new THREE.MeshStandardMaterial({ color: 0x00ff7f, emissive: 0x00a85a, emissiveIntensity: 0.55, metalness: 0.5, roughness: 0.4 });
+  // --- Materiales (paleta Titanio + Cian) ---
+  const matBody = new THREE.MeshStandardMaterial({ color: 0xc2c8d4, metalness: 0.88, roughness: 0.3 });  // titanio
+  const matDark = new THREE.MeshStandardMaterial({ color: 0x2b2f38, metalness: 0.7, roughness: 0.45 });   // grafito (juntas)
+  const matBolt = new THREE.MeshStandardMaterial({ color: 0x14171d, metalness: 0.85, roughness: 0.5 });   // tornillos / detalles
+  const matBase = new THREE.MeshStandardMaterial({ color: 0x1b1f29, metalness: 0.75, roughness: 0.5 });   // base
+  const matLed = new THREE.MeshBasicMaterial({ color: 0x00d4ff });                                        // LED cian
+  const ledMeshes = []; // para el latido
 
   const root = new THREE.Group();
   scene.add(root);
 
-  // --- Helpers de geometría mecánica ---
-  // Motor de articulación: cilindro corto con el eje en Z (cara del servo a la vista).
-  // El cuerpo es el "handle" arrastrable (userData.entityId).
-  function motorJoint(id, radius = 0.17) {
+  // --- Helpers de detalle mecánico ---
+  // Corona de tornillos sobre una brida orientada en Z, a un radio dado.
+  function boltCircleZ(parent, ringR, count, z, boltR = 0.016, boltLen = 0.05) {
+    for (let i = 0; i < count; i++) {
+      const a = (i / count) * Math.PI * 2;
+      const b = new THREE.Mesh(new THREE.CylinderGeometry(boltR, boltR, boltLen, 6), matBolt);
+      b.rotation.x = Math.PI / 2;
+      b.position.set(Math.cos(a) * ringR, Math.sin(a) * ringR, z);
+      parent.add(b);
+    }
+  }
+  function led(mesh) { ledMeshes.push(mesh); return mesh; }
+
+  // Motor de articulación: brida grafito (handle) + tambor titanio + anillos LED + tornillos.
+  function motorJoint(id, radius) {
     const g = new THREE.Group();
-    const body = new THREE.Mesh(new THREE.CylinderGeometry(radius, radius, 0.3, 30), matJoint.clone());
-    body.rotation.x = Math.PI / 2;
-    body.userData.entityId = id;
-    g.add(body);
-    const cap = new THREE.Mesh(new THREE.CylinderGeometry(radius * 0.45, radius * 0.45, 0.34, 20),
-      new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0x8a2be2, emissiveIntensity: 0.4, metalness: 0.6, roughness: 0.3 }));
-    cap.rotation.x = Math.PI / 2;
-    g.add(cap);
-    return { group: g, handle: body };
+    const flange = new THREE.Mesh(new THREE.CylinderGeometry(radius, radius, 0.16, 36), matDark);
+    flange.rotation.x = Math.PI / 2;
+    flange.userData.entityId = id; // zona arrastrable
+    g.add(flange);
+    const drum = new THREE.Mesh(new THREE.CylinderGeometry(radius * 0.8, radius * 0.8, 0.28, 36), matBody);
+    drum.rotation.x = Math.PI / 2; g.add(drum);
+    const hub = new THREE.Mesh(new THREE.CylinderGeometry(radius * 0.3, radius * 0.3, 0.32, 18), matBolt);
+    hub.rotation.x = Math.PI / 2; g.add(hub);
+    for (const z of [0.14, -0.14]) {
+      const r = led(new THREE.Mesh(new THREE.TorusGeometry(radius * 0.86, 0.013, 10, 44), matLed));
+      r.position.z = z; g.add(r);
+    }
+    boltCircleZ(g, radius * 0.58, 8, 0.085, 0.014, 0.04);
+    return { group: g, handle: flange };
   }
 
-  // Eslabón tipo viga: núcleo delgado + dos placas laterales (look mecánico).
+  // Eslabón tipo viga: núcleo grafito + placas titanio atornilladas + nervios + banda LED.
   function link(len, w) {
     const g = new THREE.Group();
-    const core = new THREE.Mesh(new THREE.BoxGeometry(w * 0.55, len, w * 0.55), matLink);
+    const core = new THREE.Mesh(new THREE.BoxGeometry(w * 0.5, len * 0.98, w * 0.5), matDark);
     core.position.y = len / 2; g.add(core);
-    const plate = new THREE.BoxGeometry(0.035, len * 0.92, w);
-    const pL = new THREE.Mesh(plate, matBody); pL.position.set(w * 0.33, len / 2, 0); g.add(pL);
-    const pR = pL.clone(); pR.position.x = -w * 0.33; g.add(pR);
+    const plateGeo = new THREE.BoxGeometry(0.045, len * 0.9, w);
+    const pL = new THREE.Mesh(plateGeo, matBody); pL.position.set(w * 0.32, len / 2, 0); g.add(pL);
+    const pR = pL.clone(); pR.position.x = -w * 0.32; g.add(pR);
+    // Nervios de refuerzo sobre el núcleo.
+    const ribGeo = new THREE.BoxGeometry(w * 0.54, 0.035, w * 0.54);
+    for (let i = 1; i <= 3; i++) {
+      const rib = new THREE.Mesh(ribGeo, matBolt);
+      rib.position.y = (len / 4) * i; g.add(rib);
+    }
+    // Banda LED cian frontal.
+    const band = led(new THREE.Mesh(new THREE.BoxGeometry(0.022, len * 0.78, 0.05), matLed));
+    band.position.set(0, len / 2, w * 0.52); g.add(band);
+    // Tornillos en las placas.
+    for (const px of [w * 0.34, -w * 0.34]) {
+      for (const py of [len * 0.12, len * 0.88]) {
+        const bolt = new THREE.Mesh(new THREE.CylinderGeometry(0.017, 0.017, 0.05, 6), matBolt);
+        bolt.rotation.z = Math.PI / 2;
+        bolt.position.set(px, py, 0); g.add(bolt);
+      }
+    }
     return g;
   }
 
   // --- Plataforma base ---
-  const baseDisk = new THREE.Mesh(new THREE.CylinderGeometry(0.85, 0.96, 0.12, 36), matBase);
+  const baseDisk = new THREE.Mesh(new THREE.CylinderGeometry(0.85, 0.98, 0.12, 48), matBase);
   baseDisk.position.y = 0.06; root.add(baseDisk);
-  const baseStep = new THREE.Mesh(new THREE.CylinderGeometry(0.52, 0.68, 0.16, 36), matBody);
+  const baseRing = led(new THREE.Mesh(new THREE.TorusGeometry(0.87, 0.013, 10, 64), matLed));
+  baseRing.rotation.x = -Math.PI / 2; baseRing.position.y = 0.12; root.add(baseRing);
+  const baseStep = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.66, 0.16, 48), matBody);
   baseStep.position.y = 0.18; root.add(baseStep);
+  for (let i = 0; i < 12; i++) {
+    const a = (i / 12) * Math.PI * 2;
+    const b = new THREE.Mesh(new THREE.CylinderGeometry(0.022, 0.022, 0.05, 6), matBolt);
+    b.position.set(Math.cos(a) * 0.74, 0.12, Math.sin(a) * 0.74); root.add(b);
+  }
 
   // --- Torreta giratoria (servo base) ---
   const baseGroup = new THREE.Group(); baseGroup.position.y = 0.26; root.add(baseGroup);
-  const turret = new THREE.Mesh(new THREE.CylinderGeometry(0.33, 0.4, 0.32, 30), matBody);
-  turret.position.y = 0.16; baseGroup.add(turret);
-  const facing = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.1, 0.14), matJoint.clone());
-  facing.position.set(0, 0.16, 0.37); baseGroup.add(facing); // indicador de orientación frontal
-  // Handle plano para arrastrar la base (anillo translúcido sobre la torreta).
-  const baseHandle = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.5, 0.05, 36), matJoint.clone());
-  baseHandle.material.transparent = true; baseHandle.material.opacity = 0.22;
+  const turret = new THREE.Mesh(new THREE.CylinderGeometry(0.33, 0.42, 0.34, 36), matBody);
+  turret.position.y = 0.17; baseGroup.add(turret);
+  const turretLed = led(new THREE.Mesh(new THREE.TorusGeometry(0.34, 0.011, 10, 48), matLed));
+  turretLed.rotation.x = -Math.PI / 2; turretLed.position.y = 0.31; baseGroup.add(turretLed);
+  const facing = led(new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.1, 0.14), matLed));
+  facing.position.set(0, 0.17, 0.38); baseGroup.add(facing); // indicador de orientación
+  // Cableado lateral (manguera grafito) de la base hacia el hombro.
+  const cableCurve = new THREE.CatmullRomCurve3([
+    new THREE.Vector3(0.3, 0.05, 0.18),
+    new THREE.Vector3(0.36, 0.45, 0.12),
+    new THREE.Vector3(0.22, 0.85, 0.02),
+    new THREE.Vector3(0.12, 1.2, 0.0)
+  ]);
+  const cable = new THREE.Mesh(new THREE.TubeGeometry(cableCurve, 28, 0.028, 8), matBolt);
+  baseGroup.add(cable);
+  // Handle plano para arrastrar la base.
+  const baseHandle = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.5, 0.05, 36),
+    new THREE.MeshBasicMaterial({ color: 0x00d4ff, transparent: true, opacity: 0.16 }));
   baseHandle.position.y = 0.02; baseHandle.userData.entityId = 'base'; baseGroup.add(baseHandle);
 
   // --- Hombro ---
   const shoulderPivot = new THREE.Group(); shoulderPivot.position.y = 0.42; baseGroup.add(shoulderPivot);
-  shoulderPivot.add(motorJoint('shoulder', 0.19).group);
-  shoulderPivot.add(link(1.5, 0.28));
+  shoulderPivot.add(motorJoint('shoulder', 0.2).group);
+  shoulderPivot.add(link(1.5, 0.3));
 
   // --- Codo ---
   const elbowPivot = new THREE.Group(); elbowPivot.position.y = 1.5; shoulderPivot.add(elbowPivot);
-  elbowPivot.add(motorJoint('elbow', 0.16).group);
-  elbowPivot.add(link(1.2, 0.22));
+  elbowPivot.add(motorJoint('elbow', 0.17).group);
+  elbowPivot.add(link(1.2, 0.24));
 
   // --- Muñeca + pinza ---
   const wristPivot = new THREE.Group(); wristPivot.position.y = 1.2; elbowPivot.add(wristPivot);
   wristPivot.add(motorJoint('wrist', 0.14).group);
-  const wristLink = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.11, 0.34, 22), matBody);
+  const wristLink = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.12, 0.34, 24), matBody);
   wristLink.position.y = 0.18; wristPivot.add(wristLink);
-  const palm = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.12, 0.22), matBody);
-  palm.position.y = 0.4; wristPivot.add(palm);
+  const palm = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.13, 0.24), matBody);
+  palm.position.y = 0.41; wristPivot.add(palm);
+  const palmLed = led(new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.018, 0.04), matLed));
+  palmLed.position.set(0, 0.41, 0.13); wristPivot.add(palmLed);
 
-  // Dedos de la pinza (se abren/cierran según el servo 4).
-  const gripper = new THREE.Group(); gripper.position.y = 0.46; wristPivot.add(gripper);
+  // Dedos de la pinza (se abren/cierran según el servo 4), con almohadillas cian.
+  const gripper = new THREE.Group(); gripper.position.y = 0.47; wristPivot.add(gripper);
   function finger() {
     const f = new THREE.Group();
-    const arm = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.26, 0.13), matGrip);
-    arm.position.y = 0.13; f.add(arm);
-    const tip = new THREE.Mesh(new THREE.BoxGeometry(0.11, 0.05, 0.13), matGrip);
-    tip.position.y = 0.25; f.add(tip);
+    const arm = new THREE.Mesh(new THREE.BoxGeometry(0.055, 0.28, 0.14), matBody);
+    arm.position.y = 0.14; f.add(arm);
+    const knuckle = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.06, 0.16), matDark);
+    knuckle.position.y = 0.02; f.add(knuckle);
+    const tip = new THREE.Mesh(new THREE.BoxGeometry(0.11, 0.06, 0.14), matBody);
+    tip.position.y = 0.27; f.add(tip);
+    const pad = led(new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.2, 0.1), matLed));
+    pad.position.set(0, 0.16, 0.05); f.add(pad);
     return f;
   }
   const fingerL = finger(); gripper.add(fingerL);
-  const fingerR = finger(); gripper.add(fingerR);
+  const fingerR = finger(); fingerR.scale.x = -1; gripper.add(fingerR);
 
   const joints = { base: baseGroup, shoulder: shoulderPivot, elbow: elbowPivot };
 
@@ -161,8 +222,8 @@ export function initHud3d() {
   const shown = { base: 90, shoulder: 90, elbow: 90, wrist: 90 };
 
   // --- Cámara orbital (esférica) ---
-  const target = new THREE.Vector3(0, 1.6, 0);
-  const cam = { radius: 6.5, theta: 0.7, phi: 1.1 };
+  const target = new THREE.Vector3(0, 1.65, 0);
+  const cam = { radius: 6.8, theta: 0.7, phi: 1.1 };
   function updateCamera() {
     camera.position.x = target.x + cam.radius * Math.sin(cam.phi) * Math.sin(cam.theta);
     camera.position.y = target.y + cam.radius * Math.cos(cam.phi);
@@ -272,10 +333,15 @@ export function initHud3d() {
         joints[id].rotation.z = (shown[id] - 90) * DEG;
       }
     }
-    ring.material.opacity = 0.32 + Math.sin(Date.now() * 0.002) * 0.12; // latido
+    // Latido sincronizado de los LED y el anillo de plataforma.
+    const pulse = 0.7 + Math.sin(Date.now() * 0.003) * 0.3;
+    ring.material.opacity = 0.28 + Math.sin(Date.now() * 0.002) * 0.12;
+    for (const m of ledMeshes) m.material.opacity = pulse;
     updateCamera();
     renderer.render(scene, camera);
   }
+  // Los materiales LED comparten instancia; habilitar transparencia para el latido.
+  matLed.transparent = true;
   updateCamera();
   animate();
 }
