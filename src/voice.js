@@ -80,7 +80,9 @@ export function normalizeVoiceText(text) {
   return String(text || '')
     .toLowerCase()
     .normalize('NFD')
-    .replace(/[̀-ͯ]/g, '')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^\w\s.-]/g, ' ')
+    .replace(/\s+/g, ' ')
     .trim();
 }
 
@@ -89,17 +91,35 @@ export async function handleVoiceTranscript(transcript) {
   const raw = String(transcript || '').trim();
   const normalized = normalizeVoiceText(raw);
   if (!raw) return;
-  if (normalized.includes('stop talking') || normalized.includes('deja de hablar') || normalized.includes('silencio tadashy')) {
+  
+  console.log('[VOICE] Escuchado:', normalized);
+  
+  if (normalized.includes('stop talking') || normalized.includes('deja de hablar') || normalized.includes('silencio tadashy') || normalized.includes('callate')) {
     stopSpeaking();
     return;
   }
-  const wakeIndex = normalized.indexOf('hey tadashy');
+  
+  const wakeWords = ['hey tadashy', 'hey tadashi', 'ey tadashy', 'ey tadashi', 'tadashy', 'tadashi', 'ok tadashy'];
+  let wakeIndex = -1;
+  let matchedWakeWord = '';
+  
+  for (const w of wakeWords) {
+    const idx = normalized.indexOf(w);
+    if (idx !== -1) {
+      wakeIndex = idx;
+      matchedWakeWord = w;
+      break;
+    }
+  }
+
   if (!state.handsFreeMode && wakeIndex === -1) {
-    updateVoiceStatus('Esperando wake word · Hey TADASHY');
+    updateVoiceStatus('Esperando wake word...');
     return;
   }
-  const command = wakeIndex >= 0 ? raw.slice(wakeIndex + 'hey tadashy'.length).trim() : raw;
+  
+  const command = wakeIndex >= 0 ? normalized.slice(wakeIndex + matchedWakeWord.length).trim() : normalized;
   if (!command) return;
+  
   updateVoiceStatus('Procesando voz...');
   const reply = await sendAiMessage(command, { channel: 'voice', sessionId: state.voiceSessionId, speak: true });
   if (reply) speakAi(reply);
