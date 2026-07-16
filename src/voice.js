@@ -8,6 +8,32 @@ export function updateVoiceStatus(text, active = state.voiceEnabled) {
   if (status) status.textContent = text;
   $('voice-toggle-btn')?.classList.toggle('active', active);
   $('handsfree-toggle-btn')?.classList.toggle('active', state.handsFreeMode);
+
+  const orb = $('jarvis-orb');
+  const orbText = $('orb-status-text');
+  if (orb && orbText) {
+    orb.className = 'quantum-orb';
+    const lowerText = String(text).toLowerCase();
+    if (lowerText.includes('hablando')) {
+      orb.classList.add('is-speaking');
+      orbText.textContent = 'Hablando';
+      orbText.style.color = '#ff3cac';
+    } else if (lowerText.includes('procesando')) {
+      orb.classList.add('is-processing');
+      orbText.textContent = 'Procesando';
+      orbText.style.color = '#ffc107';
+    } else if (lowerText.includes('escuchando') || lowerText.includes('ptt activo')) {
+      orb.classList.add('is-listening');
+      orbText.textContent = 'Escuchando';
+      orbText.style.color = 'var(--accent-ai)';
+    } else if (lowerText.includes('esperando')) {
+      orbText.textContent = 'Esperando Wake Word';
+      orbText.style.color = 'var(--text-muted)';
+    } else {
+      orbText.textContent = active ? 'Voz Lista' : 'Voz Desactivada';
+      orbText.style.color = 'var(--text-muted)';
+    }
+  }
 }
 
 export function speakAi(text) {
